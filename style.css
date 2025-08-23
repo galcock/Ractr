@@ -8,11 +8,12 @@
 html,body{height:100%}
 html{color-scheme:dark}
 body{
-  margin:0; background:var(--bg); color:var(--fg);
-  font:16px/1.6 var(--font);
-  -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
-  overflow-x:hidden; /* kill horizontal creep */
+  margin:0; background:var(--bg); color:var(--fg); font:16px/1.6 var(--font);
+  -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; overflow-x:hidden;
 }
+
+/* always respect [hidden] */
+[hidden]{display:none !important}
 
 /* Links & buttons */
 a{color:var(--fg); text-decoration:none}
@@ -36,7 +37,20 @@ a:hover{opacity:.9}
 .brand{display:flex; align-items:center; gap:10px; font-weight:900; letter-spacing:.2px}
 .logo{display:block; filter:drop-shadow(0 6px 24px rgba(255,255,255,.08))}
 .links{display:flex; gap:18px; align-items:center}
-.menu{display:none; background:transparent; border:0; color:#fff; font-size:26px}
+
+/* burger */
+.menu{
+  display:none; position:relative; width:38px; height:34px; background:transparent; border:0; padding:0;
+}
+.menu .bar{
+  position:absolute; left:6px; right:6px; height:2px; background:#fff; border-radius:2px; transition:transform .2s ease, top .2s ease, opacity .2s ease;
+}
+.menu .bar:nth-child(1){top:10px}
+.menu .bar:nth-child(2){top:16px}
+.menu .bar:nth-child(3){top:22px}
+.menu.open .bar:nth-child(1){top:16px; transform:rotate(45deg)}
+.menu.open .bar:nth-child(2){opacity:0}
+.menu.open .bar:nth-child(3){top:16px; transform:rotate(-45deg)}
 
 /* Mobile nav */
 .mobile-nav{
@@ -45,11 +59,9 @@ a:hover{opacity:.9}
 }
 .mobile-nav a{padding:8px 0}
 
-/* Generic sections */
+/* Sections */
 section{max-width:min(1200px,100vw); margin:0 auto; padding:0 clamp(16px,4vw,28px)}
-.hero{
-  text-align:center; padding-top:80px; padding-bottom:36px;
-}
+.hero{text-align:center; padding-top:80px; padding-bottom:36px}
 .hero h1{font-size:clamp(40px,6.6vw,76px); line-height:1.05; margin:0 0 10px}
 .hero .muted{color:#dcdcdc; font-weight:400}
 .lede{color:#e6e6e6; font-size:clamp(18px,2.2vw,24px); max-width:980px; margin:12px auto 24px}
@@ -62,27 +74,29 @@ section{max-width:min(1200px,100vw); margin:0 auto; padding:0 clamp(16px,4vw,28p
   font-size:.95rem; color:#ddd; background:rgba(255,255,255,.04); box-shadow:var(--shadow);
 }
 
-/* Feature grid cards */
+/* Feature grid */
 .grid{
-  display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:16px;
-  margin:44px auto;
+  display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:16px; margin:44px auto;
 }
 .card{
-  background:var(--card); border:1px solid var(--line); border-radius:16px; padding:22px;
-  box-shadow:var(--shadow);
+  background:var(--card); border:1px solid var(--line); border-radius:16px; padding:22px; box-shadow:var(--shadow);
 }
 .grid h3{margin:.3rem 0 6px; font-size:1.2rem}
 .grid p{margin:0; color:#cfcfcf}
 
-/* Demo */
+/* Demo with "COMING SOON" */
 .demo{text-align:center; margin:56px auto 20px}
 .frame{
-  width:100%; aspect-ratio:16/9; border-radius:20px; border:1px solid var(--line);
-  background:linear-gradient(170deg,#0a0a0a,#121212); display:grid; place-items:center; overflow:hidden;
-  box-shadow:var(--shadow);
+  position:relative; width:100%; aspect-ratio:16/9; border-radius:20px; border:1px solid var(--line);
+  background:linear-gradient(170deg,#0a0a0a,#121212); display:grid; place-items:center; overflow:hidden; box-shadow:var(--shadow);
 }
-.play{font-size:48px; opacity:.6}
-.caption{color:#bdbdbd; margin:10px 0 0}
+.play{position:relative; font-size:48px; opacity:.75; z-index:2}
+.coming{
+  position:absolute; inset:0; display:grid; place-items:center; z-index:1;
+  font-weight:900; letter-spacing:.35em; font-size:clamp(18px,4.5vw,40px);
+  color:#ffffff; opacity:.08; user-select:none; pointer-events:none;
+}
+.caption{color:#bdbdbd; margin:14px 0 0}
 
 /* How it works */
 .how{text-align:center; margin:60px auto}
@@ -91,8 +105,7 @@ section{max-width:min(1200px,100vw); margin:0 auto; padding:0 clamp(16px,4vw,28p
   list-style:none; display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:14px; padding:0; margin:0;
 }
 .steps li{
-  background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; color:#dcdcdc;
-  box-shadow:var(--shadow);
+  background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; color:#dcdcdc; box-shadow:var(--shadow);
 }
 .steps strong{color:#fff}
 
@@ -108,30 +121,29 @@ section{max-width:min(1200px,100vw); margin:0 auto; padding:0 clamp(16px,4vw,28p
 .row:last-child div{border-bottom:0}
 
 /* CTA */
-.cta-block{text-align:center; margin:72px auto 34px}
+.cta-block{text-align:center; margin:72px auto 48px}
 .waitlist{
   display:flex; gap:12px; justify-content:center; flex-wrap:wrap; margin-top:14px;
   max-width:min(900px,100%); margin-left:auto; margin-right:auto;
 }
 .waitlist input{
-  flex:1 1 520px; /* BIG email box */
-  min-width:min(560px,92vw);
+  flex:1 1 520px; min-width:min(560px,92vw);
   padding:16px 16px; border-radius:12px; border:1px solid var(--line);
-  background:#0d0d0d; color:#fff; font-size:18px; outline:none;
-  box-shadow:var(--shadow);
+  background:#0d0d0d; color:#fff; font-size:18px; outline:none; box-shadow:var(--shadow);
 }
 .waitlist input:focus{border-color:#333; box-shadow:0 0 0 3px rgba(255,255,255,.06), var(--shadow)}
 .micro{color:#9a9a9a; font-size:.95rem; margin-top:12px}
 
-/* Footer */
+/* Footer — clean bottom */
 .foot{
-  border-top:1px solid var(--line); display:flex; justify-content:space-between; align-items:center;
-  gap:16px; padding:22px clamp(16px,4vw,28px); max-width:min(1200px,100vw); margin:60px auto 20px;
+  border-top:1px solid var(--line);
+  display:flex; justify-content:space-between; align-items:center; gap:16px;
+  padding:22px clamp(16px,4vw,28px); max-width:min(1200px,100vw); margin:60px auto 20px;
 }
-.foot nav{display:flex; gap:18px}
+.foot-left{color:#bdbdbd}
+.foot-nav{display:flex; gap:18px}
 .foot a{color:#bbb}
 
-/* Scroll-reveal */
 .reveal{opacity:0; transform:translateY(18px); transition:opacity .5s ease, transform .5s ease}
 .reveal.in{opacity:1; transform:none}
 
@@ -147,4 +159,5 @@ section{max-width:min(1200px,100vw); margin:0 auto; padding:0 clamp(16px,4vw,28p
   .steps{grid-template-columns:1fr}
   .hero{padding-top:64px}
   .btn{padding:13px 18px}
+  .foot{flex-direction:column; align-items:flex-start; gap:8px}
 }
