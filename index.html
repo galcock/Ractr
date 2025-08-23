@@ -5,7 +5,7 @@
   <title>Ractr — Ractr does your work</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="description" content="Ractr for macOS. The future of computer interface. Ractr does your work.">
-  <link rel="stylesheet" href="/style.css?v=6">
+  <link rel="stylesheet" href="/style.css?v=7">
   <link rel="icon" type="image/svg+xml" href="#favicon">
 </head>
 <body>
@@ -31,9 +31,12 @@
       <a href="#compare">Why better</a>
       <a class="btn small" href="#cta">Get Ractr</a>
     </nav>
-    <button class="menu" aria-label="Menu" aria-expanded="false">⋯</button>
+    <button class="menu" aria-label="Open menu" aria-expanded="false">
+      <span class="bar"></span><span class="bar"></span><span class="bar"></span>
+    </button>
   </header>
 
+  <!-- starts hidden (CSS enforces it) -->
   <div id="mobileNav" class="mobile-nav" hidden>
     <a href="#features">Features</a>
     <a href="#how">How it works</a>
@@ -66,7 +69,10 @@
     </section>
 
     <section id="video" class="demo reveal">
-      <div class="frame"><div class="play">▶</div></div>
+      <div class="frame">
+        <div class="coming">COMING&nbsp;SOON</div>
+        <div class="play" aria-hidden="true">▶</div>
+      </div>
       <p class="caption">Inbox zero, clean calendar, filed PDFs — from one sentence. That’s Ractr.</p>
     </section>
 
@@ -96,7 +102,6 @@
       <h2>Ready for the future of interface?</h2>
       <p class="lede">Join the early access and get the macOS build first.</p>
 
-      <!-- REAL waitlist form via Formspree -->
       <form id="waitlist" class="waitlist" action="https://formspree.io/f/xqalrjbo" method="POST">
         <input type="email" name="email" placeholder="you@company.com" aria-label="Email" required>
         <input type="hidden" name="_subject" value="Ractr Waitlist">
@@ -104,13 +109,13 @@
         <p id="msg" class="micro" role="status" aria-live="polite"></p>
       </form>
 
-      <p class="micro">Ractr is just like Vercept — except faster, simpler, and vastly more capable.</p>
+      <p class="micro">Ractr is exactly like Vercept — except faster, simpler, and vastly more capable.</p>
     </section>
   </main>
 
   <footer class="foot">
-    <span>© <span id="year"></span> Ractr</span>
-    <nav>
+    <div class="foot-left">Copyright © <span id="year"></span> Ractr</div>
+    <nav class="foot-nav">
       <a href="#features">Features</a>
       <a href="#how">How it works</a>
       <a href="#compare">Why better</a>
@@ -122,19 +127,32 @@
     // Year
     document.getElementById('year').textContent = new Date().getFullYear();
 
-    // Mobile menu
+    // Mobile menu (guaranteed hidden by CSS)
     const m=document.querySelector('.menu'), nav=document.getElementById('mobileNav');
-    if(m&&nav){ m.addEventListener('click',()=>{ const open=!nav.hasAttribute('hidden'); nav.toggleAttribute('hidden',open); m.setAttribute('aria-expanded',String(!open)); }); }
+    if(m&&nav){
+      m.addEventListener('click',()=>{
+        const open=!nav.hasAttribute('hidden');
+        nav.toggleAttribute('hidden',open);
+        m.setAttribute('aria-expanded', String(!open));
+        document.body.style.overflow = open ? '' : 'hidden'; // lock scroll when menu open
+        m.classList.toggle('open', !open);
+      });
+      // Close when clicking a link
+      nav.querySelectorAll('a').forEach(a=>a.addEventListener('click',()=>{
+        nav.setAttribute('hidden',''); m.setAttribute('aria-expanded','false'); document.body.style.overflow='';
+        m.classList.remove('open');
+      }));
+    }
 
     // Smooth scroll
     document.querySelectorAll('a[href^="#"]').forEach(a=>{
       a.addEventListener('click',e=>{
         const id=a.getAttribute('href').slice(1), el=document.getElementById(id);
-        if(el){ e.preventDefault(); el.scrollIntoView({behavior:'smooth',block:'start'}); if(nav&&!nav.hasAttribute('hidden')) nav.setAttribute('hidden',''); }
+        if(el){ e.preventDefault(); el.scrollIntoView({behavior:'smooth',block:'start'}); }
       });
     });
 
-    // AJAX submit to Formspree (no redirect)
+    // AJAX submit to Formspree
     const form=document.getElementById('waitlist'); const msg=document.getElementById('msg');
     if(form){
       form.addEventListener('submit', async (e)=>{
@@ -145,7 +163,7 @@
           const res=await fetch(form.action, {method:'POST', headers:{'Accept':'application/json'}, body:new FormData(form)});
           if(res.ok){ msg.textContent='You’re in. We’ll email you soon.'; msg.style.color='#9f9'; form.reset(); }
           else{ msg.textContent='Hmm, try again in a minute.'; msg.style.color='#f88'; }
-        }catch(err){ msg.textContent='Network hiccup. Try again.'; msg.style.color='#f88'; }
+        }catch{ msg.textContent='Network hiccup. Try again.'; msg.style.color='#f88'; }
       });
     }
 
