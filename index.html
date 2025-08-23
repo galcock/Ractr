@@ -5,15 +5,14 @@
   <title>Ractr — Ractr does your work</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="description" content="Ractr for macOS. The future of computer interface. Ractr does your work.">
-  <link rel="stylesheet" href="/style.css?v=3">
-  <!-- Simple favicon from the logo -->
+  <link rel="stylesheet" href="/style.css?v=4">
   <link rel="icon" type="image/svg+xml" href="#favicon">
 </head>
 <body>
-  <!-- Invisible SVG for favicon reference -->
+  <!-- Favicon source -->
   <svg id="favicon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" style="display:none">
     <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#999"/>
+      <stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#bfbfbf"/>
     </linearGradient></defs>
     <rect width="64" height="64" rx="12" fill="#000"/>
     <path d="M18 46V18h15c8 0 13 4.5 13 11.5 0 6-5 10.5-12.4 10.5H31l9.8 6H34L21 34.5V46h-3zm13-24h-10v9.5l10 0c5.2 0 8.6-2.6 8.6-6.9S36.2 22 31 22z" fill="url(#g)"/>
@@ -21,13 +20,11 @@
 
   <header class="nav">
     <a class="brand" href="#top" aria-label="Ractr Home">
-      <!-- Ractr LOGO (inline SVG) -->
+      <!-- SMASH logo -->
       <svg class="logo" width="34" height="34" viewBox="0 0 64 64" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#bfbfbf"/>
-          </linearGradient>
-        </defs>
+        <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#bfbfbf"/>
+        </linearGradient></defs>
         <rect width="64" height="64" rx="14" fill="#0a0a0a"/>
         <path d="M18 46V18h15c8 0 13 4.5 13 11.5 0 6-5 10.5-12.4 10.5H31l9.8 6H34L21 34.5V46h-3zm13-24h-10v9.5l10 0c5.2 0 8.6-2.6 8.6-6.9S36.2 22 31 22z" fill="url(#lg)"/>
       </svg>
@@ -50,7 +47,7 @@
   </div>
 
   <main id="top">
-    <section class="hero">
+    <section class="hero reveal">
       <h1><span class="muted">Ractr</span> does your work.</h1>
       <p class="lede">For macOS. The future of computer interface — speak or type. Ractr sees, decides, and executes.</p>
       <div class="cta">
@@ -64,31 +61,31 @@
       </div>
     </section>
 
-    <section id="features" class="grid">
-      <article><h3>See • Listen • Act</h3><p>Ractr understands your screen and audio (with permission), then takes the next step.</p></article>
-      <article><h3>Autopilot or Assist</h3><p>“Summarize → draft → send → schedule.” One command. One flow. Done.</p></article>
-      <article><h3>Minimal UI, max power</h3><p>A single command bar. No dashboards. No clutter. Just outcomes.</p></article>
-      <article><h3>macOS-native</h3><p>Built on Apple frameworks for speed, stability, and battery-sane performance.</p></article>
-      <article><h3>Private by design</h3><p>Local-first. Clear scopes. Action logs you can trust.</p></article>
-      <article><h3>Composable skills</h3><p>Save your own chains; share with the team when you’re ready.</p></article>
+    <section id="features" class="grid reveal">
+      <article class="card"><h3>See • Listen • Act</h3><p>Understands your screen and audio (with permission), then takes the next step.</p></article>
+      <article class="card"><h3>Autopilot or Assist</h3><p>“Summarize → draft → send → schedule.” One command. One flow. Done.</p></article>
+      <article class="card"><h3>Minimal UI, max power</h3><p>A single command bar. No dashboards. No clutter. Just outcomes.</p></article>
+      <article class="card"><h3>macOS-native</h3><p>Built on Apple frameworks for speed, stability, and battery-sane performance.</p></article>
+      <article class="card"><h3>Private by design</h3><p>Local-first. Clear scopes. Action logs you can trust.</p></article>
+      <article class="card"><h3>Composable skills</h3><p>Save your chains; share with the team when you’re ready.</p></article>
     </section>
 
-    <section id="video" class="demo">
-      <div class="frame" role="img" aria-label="Product demo placeholder"><div class="play">▶</div></div>
+    <section id="video" class="demo reveal">
+      <div class="frame"><div class="play">▶</div></div>
       <p class="caption">Inbox zero, clean calendar, filed PDFs — from one sentence. That’s Ractr.</p>
     </section>
 
-    <section id="how" class="how">
+    <section id="how" class="how reveal">
       <h2>How it works</h2>
       <ol class="steps">
         <li><strong>Command.</strong> Hit ⌘Space. Say it or type it.</li>
-        <li><strong>Understand.</strong> Ractr fuses your intent with on-screen context.</li>
+        <li><strong>Understand.</strong> Intent + on-screen context.</li>
         <li><strong>Execute.</strong> Clicks, types, organizes — or asks first.</li>
         <li><strong>Verify.</strong> Clear summary. Undo anytime.</li>
       </ol>
     </section>
 
-    <section id="compare" class="compare">
+    <section id="compare" class="compare reveal">
       <h2>Why it’s way better</h2>
       <div class="table">
         <div class="row head"><div>Ractr</div><div>Typical “AI assistant”</div></div>
@@ -100,14 +97,14 @@
       </div>
     </section>
 
-    <section id="cta" class="cta-block">
+    <section id="cta" class="cta-block reveal">
       <h2>Ready for the future of interface?</h2>
       <p class="lede">Join the early access and get the macOS build first.</p>
       <form class="waitlist" action="mailto:hello@ractr.com" method="post" enctype="text/plain">
         <input type="email" name="email" placeholder="you@company.com" aria-label="Email" required>
         <button class="btn" type="submit">Join Waitlist</button>
       </form>
-      <p class="micro">Ractr is exactly like Vercept — except faster, simpler, and vastly more capable. This is the next interface.</p>
+      <p class="micro">Ractr is exactly like Vercept — except faster, simpler, and vastly more capable.</p>
     </section>
   </main>
 
@@ -122,16 +119,30 @@
   </footer>
 
   <script>
-    // Mobile menu + year; inline to keep two-file limit.
-    (function(){
-      document.getElementById('year').textContent = new Date().getFullYear();
-      const m = document.querySelector('.menu'), nav = document.getElementById('mobileNav');
-      if (m && nav) m.addEventListener('click', () => {
-        const open = !nav.hasAttribute('hidden');
-        nav.toggleAttribute('hidden', open);
-        m.setAttribute('aria-expanded', String(!open));
+    // Year
+    document.getElementById('year').textContent = new Date().getFullYear();
+
+    // Mobile menu
+    const m = document.querySelector('.menu'), nav = document.getElementById('mobileNav');
+    if (m && nav) m.addEventListener('click', () => {
+      const open = !nav.hasAttribute('hidden');
+      nav.toggleAttribute('hidden', open);
+      m.setAttribute('aria-expanded', String(!open));
+    });
+
+    // Smooth scroll
+    document.querySelectorAll('a[href^="#"]').forEach(a=>{
+      a.addEventListener('click',e=>{
+        const id=a.getAttribute('href').slice(1), el=document.getElementById(id);
+        if(el){ e.preventDefault(); el.scrollIntoView({behavior:'smooth',block:'start'}); if(nav && !nav.hasAttribute('hidden')) nav.setAttribute('hidden',''); }
       });
-    })();
+    });
+
+    // Scroll-reveal (fast + mobile friendly)
+    const io = 'IntersectionObserver' in window ? new IntersectionObserver((entries)=>{
+      entries.forEach(x=>{ if(x.isIntersecting){ x.target.classList.add('in'); io.unobserve(x.target); } });
+    }, {threshold: 0.12}) : null;
+    document.querySelectorAll('.reveal').forEach(el=> io ? io.observe(el) : el.classList.add('in'));
   </script>
 </body>
 </html>
