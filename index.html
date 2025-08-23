@@ -5,47 +5,26 @@
   <title>Ractr — Ractr does your work</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="description" content="Ractr for macOS. The future of computer interface. Ractr does your work.">
-  <meta property="og:title" content="Ractr — Ractr does your work">
-  <meta property="og:description" content="The future of computer interface. Faster, simpler, and way more capable.">
-  <meta property="og:type" content="website">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="style.css">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Crect width='100%25' height='100%25' fill='black'/%3E%3Ctext x='50%25' y='55%25' dominant-baseline='middle' text-anchor='middle' font-family='-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif' font-size='40' fill='white'%3ER%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/style.css?v=2">
 </head>
 <body>
   <header class="nav">
-    <a href="#" class="brand" aria-label="Ractr Home">
-      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14" r="14" fill="#fff"/><path d="M9 19h3.8c3 0 5.2-2 5.2-4.7 0-2.4-2-4.3-4.8-4.3H9v9zM13.7 12c1.5 0 2.6.9 2.6 2.2s-1.2 2.2-2.7 2.2H11V12h2.7z" fill="#000"/></svg>
-      <span>Ractr</span>
-    </a>
+    <a href="#" class="brand">Ractr</a>
     <nav>
       <a href="#features">Features</a>
       <a href="#how">How it works</a>
       <a href="#compare">Why better</a>
       <a href="#cta" class="btn small">Get Ractr</a>
     </nav>
-    <button class="menu" aria-label="Menu" aria-expanded="false" aria-controls="mobileNav">⋯</button>
   </header>
-
-  <div id="mobileNav" class="mobile-nav" hidden>
-    <a href="#features">Features</a>
-    <a href="#how">How it works</a>
-    <a href="#compare">Why better</a>
-    <a href="#cta" class="btn small">Get Ractr</a>
-  </div>
 
   <main>
     <section class="hero">
-      <h1><span class="muted">Ractr</span> does your work.</h1>
+      <h1>Ractr does your work.</h1>
       <p class="lede">For macOS. The future of computer interface — type or speak, and Ractr sees, decides, and executes.</p>
       <div class="cta">
-        <a id="download" class="btn" href="#cta">Download for macOS</a>
+        <a class="btn" href="#cta">Download for macOS</a>
         <a class="btn ghost" href="#video">Watch demo</a>
-      </div>
-      <div class="badges">
-        <span class="chip">Lightning-fast</span>
-        <span class="chip">Incredibly simple</span>
-        <span class="chip">Private by default</span>
       </div>
     </section>
 
@@ -76,13 +55,6 @@
       </article>
     </section>
 
-    <section id="video" class="demo">
-      <div class="frame" role="img" aria-label="Product demo placeholder">
-        <div class="play">▶</div>
-      </div>
-      <p class="caption">A single sentence to inbox zero, cleaned calendar, and a filed PDF. That’s Ractr.</p>
-    </section>
-
     <section id="how" class="how">
       <h2>How it works</h2>
       <ol class="steps">
@@ -96,7 +68,7 @@
     <section id="compare" class="compare">
       <h2>Why it’s way better</h2>
       <div class="table">
-        <div class="row head"><div>Ractr</div><div>Typical “AI assistant”</div></div>
+        <div class="row head"><div>Ractr</div><div>Others</div></div>
         <div class="row"><div>Mac-native, zero bloat</div><div>Electron lag, heavy UI</div></div>
         <div class="row"><div>One bar, universal control</div><div>Too many modes and panels</div></div>
         <div class="row"><div>Fast, deterministic actions</div><div>Slow, flaky automations</div></div>
@@ -108,25 +80,16 @@
     <section id="cta" class="cta-block">
       <h2>Ready for the future of interface?</h2>
       <p class="lede">Join the early access and get the macOS build first.</p>
-      <form id="waitlist" class="waitlist" novalidate>
-        <input type="email" name="email" placeholder="you@company.com" aria-label="Email" required>
-        <button class="btn" type="submit">Join waitlist</button>
-        <p id="msg" class="msg" role="status" aria-live="polite"></p>
-      </form>
-      <p class="micro">By continuing you agree to our minimal, common-sense privacy approach: your data stays on your device unless you explicitly send it.</p>
+      <a class="btn" href="mailto:hello@ractr.com">Join Waitlist</a>
     </section>
   </main>
 
   <footer class="foot">
     <span>© <span id="year"></span> Ractr</span>
-    <nav>
-      <a href="#features">Features</a>
-      <a href="#how">How it works</a>
-      <a href="#compare">Why better</a>
-      <a href="#cta">Get Ractr</a>
-    </nav>
   </footer>
 
-  <script src="app.js"></script>
+  <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+  </script>
 </body>
 </html>
