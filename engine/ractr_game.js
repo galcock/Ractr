@@ -1,7 +1,7 @@
 // RactrGame: high-level game orchestrator.
-// This version delegates state, entities, UI, audio, and networking
-// to dedicated modules when available, while preserving the existing
-// single-player dash-survival gameplay as a fallback.
+// Now prefers a dedicated RactrGameState (in ractr_state.js) for
+// long-lived world + player state, but keeps legacy behavior as
+// a safe fallback so the game remains fully playable.
 
 class RactrGame {
   constructor(engine) {
@@ -71,7 +71,8 @@ class RactrGame {
 
     // --- Core game state --------------------------------------------------
 
-    // Prefer external state module when available
+    // Prefer the external RactrGameState if present; otherwise fall back
+    // to a minimal inline structure that mimics its shape.
     if (typeof RactrGameState === "function") {
       this.gameState = new RactrGameState(this.config);
     } else {
