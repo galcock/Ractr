@@ -306,6 +306,7 @@ class RactrGame {
     p.dashSpeed = pCfg.dashSpeed;
 
     if (!p._initializedFromConfig) {
+      // First-time initialization from config: treat player as fresh character.
       p.level = p.level || 1;
       p.xp = p.xp || 0;
 
@@ -329,6 +330,8 @@ class RactrGame {
 
       p._initializedFromConfig = true;
     } else {
+      // Existing character (e.g., from persistent storage or network):
+      // recompute derived stats, preserving level/xp.
       const levelBonus = p.level - 1;
       const strengthBonus = (progCfg.strengthPerLevel || 0) * levelBonus;
       const agilityBonus = (progCfg.agilityPerLevel || 0) * levelBonus;
@@ -402,6 +405,7 @@ class RactrGame {
   // ---------------------------------------------------------------------------
 
   _startGame() {
+    // Start a new run with the current character stats.
     this._applyConfigToPlayer();
 
     const canvas = this.engine.canvas;
@@ -477,6 +481,7 @@ class RactrGame {
 
     this.gameState.timeAlive = timeAliveBefore + dt;
 
+    // Update difficulty and spawn interval.
     const hCfg = this.config.hazards;
     const factor = this._difficultyFactor();
     const baseInterval = hCfg.baseSpawnInterval;
@@ -484,21 +489,25 @@ class RactrGame {
     const eased = factor * factor * (3 - 2 * factor);
     this.spawnInterval = baseInterval + (targetInterval - baseInterval) * eased;
 
+    // Update core gameplay.
     this._updatePlayer(dt, input);
     this._updateHazards(dt);
     this._checkCollisions();
     this._updatePlayerProgression(dt);
 
+    // Construct a lightweight snapshot for potential networking/state sync.
     const snapshot = {
       player: this.getPlayerStateSnapshot(),
       timeAlive: this.gameState.timeAlive,
       zoneId: this.player.zoneId
     };
 
+    // Networking tick is a no-op unless a real client is present.
     if (this.net && typeof this.net.tick === "function") {
       this.net.tick(dt, snapshot);
     }
 
+    // Allow external state managers to consume/sync snapshot.
     if (this.gameState && typeof this.gameState.syncFromSnapshot === "function") {
       this.gameState.syncFromSnapshot(snapshot);
       this.player = this.gameState.player;
@@ -1005,6 +1014,7 @@ class RactrGame {
     ctx.textAlign = "right";
     ctx.fillText(`Best: ${bestTime.toFixed(2)}s`, width - 12, 20);
 
+    // Health bar
     const barWidth = Math.min(220, width * 0.3);
     const barHeight = 10;
     const barX = (width - barWidth) / 2;
@@ -1055,9 +1065,11 @@ class RactrGame {
       );
     }
 
+    // RPG HUD and zone header
     this._renderRpgHud(ctx, width, height);
     this._renderZoneHud(ctx, width, height);
 
+    // Screen-space health feedback
     if (healthRatio < 0.35) {
       const vignetteStrength = (1 - healthRatio) * 0.32;
       ctx.fillStyle = `rgba(255,40,80,${vignetteStrength})`;
