@@ -1,6 +1,7 @@
 // RactrGame: high-level game orchestrator.
-// This version starts separating concerns into state, rendering, and networking
-// modules while preserving the existing survival gameplay and RPG HUD.
+// This version keeps the existing survival gameplay but starts to lean on
+// dedicated modules for state (ractr_state.js) and networking (ractr_net.js),
+// paving the way toward a full MMORPG client.
 
 class RactrGame {
   constructor(engine) {
@@ -70,10 +71,26 @@ class RactrGame {
 
     // --- Core game state --------------------------------------------------
 
-    this.player = this._createInitialPlayer();
+    // If the state module is present, use it. Otherwise, fall back to the
+    // legacy inline state layout for robustness.
+    if (typeof RactrGameState === "function") {
+      this.gameState = new RactrGameState(this.config);
+      this.player = this.gameState.player;
+      this.hazards = this.gameState.hazards;
+      this.time = this.gameState.time;
+      this.timeAlive = this.gameState.timeAlive;
+      this.bestTime = this.gameState.bestTime;
+      this.state = this.gameState.state;
+    } else {
+      this.player = this._createInitialPlayer();
+      this.hazards = [];
+      this.time = 0;
+      this.timeAlive = 0;
+      this.bestTime = 0;
+      this.state = "intro";
+    }
 
-    // Simple enemy/hazard list (will later become proper entities with types).
-    this.hazards = [];
+    // Hazard spawning helpers
     this.spawnTimer = 0;
     this.spawnInterval = this.config.hazards.baseSpawnInterval;
 
@@ -86,12 +103,6 @@ class RactrGame {
         speed: 0.6 + (i % 3) * 0.2
       });
     }
-
-    // High-level game lifecycle state.
-    this.state = "intro"; // intro | playing | gameover
-    this.time = 0;
-    this.timeAlive = 0;
-    this.bestTime = 0;
 
     // Difficulty helpers
     this.difficultyDuration = 60;
@@ -110,7 +121,17 @@ class RactrGame {
     this._cachedLevelText = "";
 
     // Networking scaffold: created but safe to remain disconnected.
-    this.net = new RactrNetClient(this.config.net);
+    if (typeof RactrNetClient === "function") {
+      this.net = new RactrNetClient(this.config.net);
+    } else {
+      this.net = {
+        applyConfig: function () {},
+        tick: function () {},
+        notifyRunStarted: function () {},
+        notifyRunEnded: function () {},
+        notifyLevelUp: function () {}
+      };
+    }
 
     this._attachStartInput();
     this._loadConfig();
@@ -161,6 +182,9 @@ class RactrGame {
   // Lightweight PlayerState snapshot suitable for persistence/networking.
   getPlayerStateSnapshot() {
     const p = this.player;
+    if (p && typeof p.snapshot === "function") {
+      return p.snapshot();
+    }
     return {
       id: p.id,
       name: p.name,
@@ -216,7 +240,9 @@ class RactrGame {
           }
           if (cfg.net) {
             this.config.net = Object.assign({}, this.config.net, cfg.net);
-            this.net.applyConfig(this.config.net);
+            if (this.net && typeof this.net.applyConfig === "function") {
+              this.net.applyConfig(this.config.net);
+            }
           }
 
           this._applyConfigToPlayer();
@@ -332,7 +358,7 @@ class RactrGame {
     p.mana = p.maxMana;
     p.invulnTime = 0;
 
-    this.hazards = [];
+    this.hazards.length = 0;
     this.spawnTimer = 0.4;
     this.spawnInterval = this.config.hazards.baseSpawnInterval;
 
@@ -381,11 +407,13 @@ class RactrGame {
     this._updatePlayerProgression(dt);
 
     // Networking hooks (safe when disconnected):
-    this.net.tick(dt, {
-      player: this.getPlayerStateSnapshot(),
-      timeAlive: this.timeAlive,
-      zoneId: this.player.zoneId
-    });
+    if (this.net && typeof this.net.tick === "function") {
+      this.net.tick(dt, {
+        player: this.getPlayerStateSnapshot(),
+        timeAlive: this.timeAlive,
+        zoneId: this.player.zoneId
+      });
+    }
   }
 
   _updatePlayer(dt, input) {
@@ -1124,163 +1152,6 @@ class RactrGame {
     }
 
     ctx.restore();
-  }
-}
-
-// -------------------------------------------------------------------------
-// RactrNetClient: thin client-side networking layer scaffold.
-// -------------------------------------------------------------------------
-
-class RactrNetClient {
-  constructor(config) {
-    this.websocketUrl = (config && config.websocketUrl) || "";
-    this.httpBaseUrl = (config && config.httpBaseUrl) || "";
-
-    this.ws = null;
-    this.wsConnected = false;
-    this.wsLastAttempt = 0;
-    this.wsReconnectDelay = 5; // seconds
-
-    this.playerId = null;
-  }
-
-  applyConfig(config) {
-    this.websocketUrl = config.websocketUrl || this.websocketUrl;
-    this.httpBaseUrl = config.httpBaseUrl || this.httpBaseUrl;
-  }
-
-  // Called each frame; safe when no backend is available.
-  tick(dt, context) {
-    if (!this.websocketUrl) return;
-
-    this.wsLastAttempt += dt;
-    if (!this.ws && this.wsLastAttempt >= this.wsReconnectDelay) {
-      this._tryConnect();
-    }
-
-    if (this.wsConnected && context && context.player) {
-      const payload = {
-        type: "client_tick",
-        player: context.player,
-        timeAlive: context.timeAlive,
-        zoneId: context.zoneId
-      };
-      this._sendJson(payload);
-    }
-  }
-
-  _tryConnect() {
-    this.wsLastAttempt = 0;
-    try {
-      const ws = new WebSocket(this.websocketUrl);
-      this.ws = ws;
-
-      ws.onopen = () => {
-        this.wsConnected = true;
-        const msg = {
-          type: "hello_client",
-          clientVersion: "ractr-web-1",
-          timestamp: Date.now()
-        };
-        this._sendJson(msg);
-      };
-
-      ws.onclose = () => {
-        this.wsConnected = false;
-        this.ws = null;
-      };
-
-      ws.onerror = () => {
-        this.wsConnected = false;
-      };
-
-      ws.onmessage = (event) => {
-        this._handleServerMessage(event.data);
-      };
-    } catch (e) {
-      this.ws = null;
-      this.wsConnected = false;
-    }
-  }
-
-  _sendJson(obj) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    try {
-      this.ws.send(JSON.stringify(obj));
-    } catch (e) {
-      // Swallow errors in absence of a real backend.
-    }
-  }
-
-  _handleServerMessage(raw) {
-    let msg;
-    try {
-      msg = JSON.parse(raw);
-    } catch (e) {
-      return;
-    }
-
-    if (!msg || typeof msg.type !== "string") return;
-
-    switch (msg.type) {
-      case "welcome": {
-        this.playerId = msg.playerId || this.playerId;
-        break;
-      }
-      case "world_snapshot": {
-        // Future: apply world + other player states.
-        break;
-      }
-      case "server_event": {
-        // Future: handle combat log, loot drops, etc.
-        break;
-      }
-      default:
-        break;
-    }
-  }
-
-  notifyRunStarted(playerSnapshot) {
-    if (!this.httpBaseUrl) return;
-    try {
-      fetch(this.httpBaseUrl + "/runs/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ player: playerSnapshot, ts: Date.now() })
-      }).catch(() => {});
-    } catch (e) {
-      // Ignore; offline-friendly.
-    }
-  }
-
-  notifyRunEnded(payload) {
-    if (!this.httpBaseUrl) return;
-    try {
-      fetch(this.httpBaseUrl + "/runs/end", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          player: payload.player,
-          timeAlive: payload.timeAlive,
-          ts: Date.now()
-        })
-      }).catch(() => {});
-    } catch (e) {
-      // Ignore; offline-friendly.
-    }
-  }
-
-  notifyLevelUp(playerSnapshot) {
-    if (!this.httpBaseUrl) return;
-    try {
-      fetch(this.httpBaseUrl + "/player/levelup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ player: playerSnapshot, ts: Date.now() })
-      }).catch(() => {});
-    } catch (e) {
-      // Ignore; offline-friendly.
-    }
   }
 }
 
