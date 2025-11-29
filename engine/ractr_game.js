@@ -17,7 +17,10 @@ class RactrGame {
         baseAttackPower: 10,
         baseDefense: 2,
         baseCritChance: 0.05,
-        baseXpPerSecondSurvived: 1
+        baseXpPerSecondSurvived: 1,
+        baseStrength: 10,
+        baseAgility: 10,
+        baseIntelligence: 10
       },
       hazards: {
         baseSpawnInterval: 1.4,
@@ -46,7 +49,20 @@ class RactrGame {
         hpPerLevel: 10,
         manaPerLevel: 5,
         attackPerLevel: 2,
-        defensePerLevel: 1
+        defensePerLevel: 1,
+        strengthPerLevel: 1,
+        agilityPerLevel: 1,
+        intelligencePerLevel: 1
+      },
+      meta: {
+        // Basic world/zone metadata scaffold for future MMORPG expansion.
+        startingZoneId: "training_grounds",
+        zones: {
+          training_grounds: {
+            name: "Training Grounds",
+            levelRange: [1, 3]
+          }
+        }
       }
     };
 
@@ -80,13 +96,23 @@ class RactrGame {
       level: 1,
       xp: 0,
       xpToNext: 100,
+
+      // Core attributes
+      strength: this.config.player.baseStrength,
+      agility: this.config.player.baseAgility,
+      intelligence: this.config.player.baseIntelligence,
+
+      // Derived combat stats
       attackPower: this.config.player.baseAttackPower,
       defense: this.config.player.baseDefense,
       critChance: this.config.player.baseCritChance,
 
       // Currency / loot placeholders
       gold: 0,
-      inventory: []
+      inventory: [],
+
+      // World/zone placement scaffold
+      zoneId: this.config.meta.startingZoneId
     };
 
     // Hazards (red orbs that spawn from edges)
@@ -129,7 +155,6 @@ class RactrGame {
 
     // Cache for RPG HUD text
     this._cachedLevelText = "";
-    this._cachedXpText = "";
 
     this._attachStartInput();
     this._loadConfig();
@@ -151,6 +176,11 @@ class RactrGame {
       level: p.level,
       xp: p.xp,
       xpToNext: p.xpToNext,
+      // Core attributes
+      strength: p.strength,
+      agility: p.agility,
+      intelligence: p.intelligence,
+      // Vital/derived combat stats
       maxHealth: p.maxHealth,
       health: p.health,
       maxMana: p.maxMana,
@@ -158,8 +188,11 @@ class RactrGame {
       attackPower: p.attackPower,
       defense: p.defense,
       critChance: p.critChance,
+      // Economy
       gold: p.gold,
-      inventory: p.inventory.slice()
+      inventory: p.inventory.slice(),
+      // World placement
+      zoneId: p.zoneId
     };
   }
 
@@ -188,6 +221,9 @@ class RactrGame {
           if (cfg.progression) {
             this.config.progression = Object.assign({}, this.config.progression, cfg.progression);
           }
+          if (cfg.meta) {
+            this.config.meta = Object.assign({}, this.config.meta, cfg.meta);
+          }
 
           // Apply config values to current runtime state
           this._applyConfigToPlayer();
@@ -195,9 +231,11 @@ class RactrGame {
         })
         .catch(() => {
           // If loading fails, keep defaults defined in the constructor
+          this._applyConfigToPlayer();
         });
     } catch (e) {
       // In very old browsers without fetch, silently keep defaults
+      this._applyConfigToPlayer();
     }
   }
 
@@ -213,20 +251,43 @@ class RactrGame {
     if (!p._initializedFromConfig) {
       p.level = p.level || 1;
       p.xp = p.xp || 0;
-      p.maxHealth = pCfg.maxHealth;
+
+      // Base attributes
+      p.strength = pCfg.baseStrength;
+      p.agility = pCfg.baseAgility;
+      p.intelligence = pCfg.baseIntelligence;
+
+      // Derive combat stats from attributes (lightweight formula for now)
+      p.maxHealth = pCfg.maxHealth + Math.round(p.strength * 1.5);
+      p.maxMana = pCfg.baseMaxMana + Math.round(p.intelligence * 1.2);
+      p.attackPower = pCfg.baseAttackPower + Math.round(p.strength * 0.6) + Math.round(p.agility * 0.2);
+      p.defense = pCfg.baseDefense + Math.round(p.strength * 0.3);
+      p.critChance = pCfg.baseCritChance + p.agility * 0.001;
+
       p.health = p.maxHealth;
-      p.maxMana = pCfg.baseMaxMana;
       p.mana = p.maxMana;
-      p.attackPower = pCfg.baseAttackPower;
-      p.defense = pCfg.baseDefense;
-      p.critChance = pCfg.baseCritChance;
       p.xpToNext = this._computeXpForLevel(p.level + 1, progCfg);
+      p.zoneId = this.config.meta.startingZoneId;
+
       p._initializedFromConfig = true;
     } else {
       // For subsequent config reloads (e.g., tuning), avoid wiping progression,
-      // but clamp resources to new maximums.
-      p.maxHealth = pCfg.maxHealth + (p.level - 1) * (progCfg.hpPerLevel || 0);
-      p.maxMana = pCfg.baseMaxMana + (p.level - 1) * (progCfg.manaPerLevel || 0);
+      // but recompute derived stats from level and attributes.
+      const levelBonus = p.level - 1;
+      const strengthBonus = (progCfg.strengthPerLevel || 0) * levelBonus;
+      const agilityBonus = (progCfg.agilityPerLevel || 0) * levelBonus;
+      const intBonus = (progCfg.intelligencePerLevel || 0) * levelBonus;
+
+      p.strength = pCfg.baseStrength + strengthBonus;
+      p.agility = pCfg.baseAgility + agilityBonus;
+      p.intelligence = pCfg.baseIntelligence + intBonus;
+
+      p.maxHealth = pCfg.maxHealth + Math.round(p.strength * 1.5) + levelBonus * (progCfg.hpPerLevel || 0);
+      p.maxMana = pCfg.baseMaxMana + Math.round(p.intelligence * 1.2) + levelBonus * (progCfg.manaPerLevel || 0);
+      p.attackPower = pCfg.baseAttackPower + Math.round(p.strength * 0.6) + Math.round(p.agility * 0.2) + levelBonus * (progCfg.attackPerLevel || 0);
+      p.defense = pCfg.baseDefense + Math.round(p.strength * 0.3) + levelBonus * (progCfg.defensePerLevel || 0);
+      p.critChance = pCfg.baseCritChance + p.agility * 0.001;
+
       if (this.state !== "playing") {
         p.health = p.maxHealth;
         p.mana = p.maxMana;
@@ -621,16 +682,25 @@ class RactrGame {
       p.level += 1;
       leveledUp = true;
 
+      // Increase attributes on level-up.
+      const strGain = progCfg.strengthPerLevel || 0;
+      const agiGain = progCfg.agilityPerLevel || 0;
+      const intGain = progCfg.intelligencePerLevel || 0;
+      p.strength += strGain;
+      p.agility += agiGain;
+      p.intelligence += intGain;
+
       // Increase stats on level-up.
       const hpGain = progCfg.hpPerLevel || 0;
       const manaGain = progCfg.manaPerLevel || 0;
       const atkGain = progCfg.attackPerLevel || 0;
       const defGain = progCfg.defensePerLevel || 0;
 
-      p.maxHealth += hpGain;
-      p.maxMana += manaGain;
-      p.attackPower += atkGain;
-      p.defense += defGain;
+      p.maxHealth += hpGain + Math.round(strGain * 1.5);
+      p.maxMana += manaGain + Math.round(intGain * 1.2);
+      p.attackPower += atkGain + Math.round(strGain * 0.6) + Math.round(agiGain * 0.2);
+      p.defense += defGain + Math.round(strGain * 0.3);
+      p.critChance += agiGain * 0.001;
 
       // Restore a portion of HP/mana on level-up as a reward.
       p.health = Math.min(p.maxHealth, p.health + Math.max(5, hpGain));
@@ -843,6 +913,9 @@ class RactrGame {
     // RPG HUD panel (top-left corner)
     this._renderRpgHud(ctx, width, height);
 
+    // World / zone HUD panel (top-right)
+    this._renderZoneHud(ctx, width, height);
+
     // Subtle low-health vignette overlay and global damage flash
     if (healthRatio < 0.35) {
       const vignetteStrength = (1 - healthRatio) * 0.32;
@@ -896,7 +969,7 @@ class RactrGame {
 
     // Clamp the panel to not take too much space on tiny screens
     const panelPadding = 8;
-    const panelWidth = Math.min(180, width * 0.4);
+    const panelWidth = Math.min(200, width * 0.45);
     const panelX = panelPadding;
     const panelY = panelPadding;
 
@@ -907,8 +980,8 @@ class RactrGame {
     const lineHeight = 12;
     let currentY = 0;
 
-    const totalLines = 6; // name, level/xp, hp, mana, attack/def, gold
-    const panelHeight = totalLines * lineHeight + 10;
+    const totalLines = 8; // name, class, level/xp, hp, mana, attributes, combat stats, gold
+    const panelHeight = totalLines * lineHeight + 12;
 
     ctx.fillStyle = "rgba(5, 6, 10, 0.6)";
     ctx.strokeStyle = "rgba(255,255,255,0.08)";
@@ -937,6 +1010,10 @@ class RactrGame {
 
     currentY += 12;
     ctx.fillText(p.name, 8, currentY);
+
+    currentY += lineHeight;
+    ctx.fillStyle = "rgba(190, 210, 255, 0.96)";
+    ctx.fillText(`Class ${p.classId}`, 8, currentY);
 
     const xpRatio = Math.max(0, Math.min(1, p.xp / p.xpToNext));
     const levelText = `Lv ${p.level}`;
@@ -970,11 +1047,21 @@ class RactrGame {
     ctx.fillStyle = "rgba(200, 220, 255, 0.9)";
     ctx.fillText(`Mana ${Math.ceil(p.mana)}/${p.maxMana}`, 8, currentY);
 
-    // Offensive / defensive stats
+    // Core attributes line
     currentY += lineHeight;
     ctx.fillStyle = "rgba(255,255,255,0.85)";
     ctx.fillText(
-      `ATK ${Math.round(p.attackPower)} · DEF ${Math.round(p.defense)}`,
+      `STR ${Math.round(p.strength)}  AGI ${Math.round(p.agility)}  INT ${Math.round(p.intelligence)}`,
+      8,
+      currentY
+    );
+
+    // Offensive / defensive combat stats
+    currentY += lineHeight;
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    const critPercent = (p.critChance * 100).toFixed(1);
+    ctx.fillText(
+      `ATK ${Math.round(p.attackPower)}  DEF ${Math.round(p.defense)}  Crit ${critPercent}%`,
       8,
       currentY
     );
@@ -983,6 +1070,57 @@ class RactrGame {
     currentY += lineHeight;
     ctx.fillStyle = "rgba(245, 215, 110, 0.9)";
     ctx.fillText(`Gold ${p.gold}`, 8, currentY);
+
+    ctx.restore();
+  }
+
+  _renderZoneHud(ctx, width, height) {
+    const meta = this.config.meta || {};
+    const p = this.player;
+    const zone = (meta.zones && meta.zones[p.zoneId]) || null;
+
+    const label = zone ? zone.name : "Unknown Zone";
+    const range = zone && zone.levelRange ? `Lv ${zone.levelRange[0]}–${zone.levelRange[1]}` : "";
+
+    const padding = 8;
+    const panelWidth = Math.min(170, width * 0.35);
+    const panelHeight = range ? 32 : 20;
+    const panelX = width - panelWidth - padding;
+    const panelY = padding;
+
+    ctx.save();
+    ctx.translate(panelX, panelY);
+
+    // Background card
+    ctx.fillStyle = "rgba(5, 6, 10, 0.6)";
+    ctx.strokeStyle = "rgba(255,255,255,0.08)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    const radius = 6;
+    const w = panelWidth;
+    const h = panelHeight;
+    ctx.moveTo(radius, 0);
+    ctx.lineTo(w - radius, 0);
+    ctx.quadraticCurveTo(w, 0, w, radius);
+    ctx.lineTo(w, h - radius);
+    ctx.quadraticCurveTo(w, h, w - radius, h);
+    ctx.lineTo(radius, h);
+    ctx.quadraticCurveTo(0, h, 0, h - radius);
+    ctx.lineTo(0, radius);
+    ctx.quadraticCurveTo(0, 0, radius, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.font = "11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillStyle = "rgba(210, 225, 255, 0.96)";
+    ctx.fillText(label, 8, 13);
+
+    if (range) {
+      ctx.fillStyle = "rgba(180, 200, 255, 0.85)";
+      ctx.fillText(range, 8, 25);
+    }
 
     ctx.restore();
   }
