@@ -15,16 +15,16 @@ class RactrGame {
       },
       hazards: {
         baseSpawnInterval: 1.4,
-        minSpawnInterval: 0.5,
+        minSpawnInterval: 0.4,
         spawnIntervalDecayPerSecond: 0.05,
         baseSpeed: 80,
         randomSpeed: 140,
         damagePerHit: 20,
-        maxOnScreen: 40
+        maxOnScreen: 42
       },
       difficulty: {
         speedIncreasePerSecond: 10,
-        spawnCountIncreaseTimes: [10, 20, 30]
+        spawnCountIncreaseTimes: [12, 24, 36]
       },
       visuals: {
         backgroundGradient: ["#05060a", "#101426"],
@@ -150,7 +150,7 @@ class RactrGame {
     this.player.invulnTime = 0;
 
     this.hazards = [];
-    this.spawnTimer = 0;
+    this.spawnTimer = 0.4; // start slightly sooner than full interval for early engagement
     this.spawnInterval = this.config.hazards.baseSpawnInterval;
 
     this.timeAlive = 0;
@@ -324,7 +324,9 @@ class RactrGame {
         y,
         vx,
         vy,
-        radius
+        radius,
+        // Cache radius squared for cheaper collision checks
+        radiusSq: radius * radius
       });
     }
   }
@@ -395,8 +397,8 @@ class RactrGame {
     const damage = hCfg.damagePerHit;
 
     // Threshold for considering a "near miss" (slightly larger than hit radius)
-    const nearMissPadding = 12;
-    const nearMissPulseCooldown = 0.08; // limit near-miss flashes for clarity
+    const nearMissPadding = 14;
+    const nearMissPulseCooldown = 0.07; // limit near-miss flashes for clarity
 
     let hadHit = false;
     let registeredNearMiss = false;
@@ -413,7 +415,7 @@ class RactrGame {
         if (p.invulnTime <= 0) {
           p.health = Math.max(0, p.health - damage);
           // Brief invulnerability to prevent rapid drain from overlapping hazards
-          p.invulnTime = 0.4;
+          p.invulnTime = 0.45;
           this.lastHitTime = this.time;
           hadHit = true;
 
@@ -421,10 +423,10 @@ class RactrGame {
           this._registerPulse(
             p.x,
             p.y,
-            "rgba(255, 90, 120, 0.7)",
-            pr + 24,
-            0.28,
-            3
+            "rgba(255, 90, 120, 0.8)",
+            pr + 28,
+            0.3,
+            3.5
           );
 
           if (p.health <= 0) {
@@ -443,10 +445,10 @@ class RactrGame {
             this._registerPulse(
               p.x,
               p.y,
-              "rgba(245, 215, 110, 0.55)",
-              pr + 16,
-              0.2,
-              2
+              "rgba(245, 215, 110, 0.65)",
+              pr + 18,
+              0.22,
+              2.4
             );
           }
         }
@@ -528,8 +530,8 @@ class RactrGame {
       const alpha = t;
       ctx.beginPath();
       ctx.strokeStyle = pulse.color
-        .replace("0.7", alpha.toFixed(3))
-        .replace("0.55", alpha.toFixed(3));
+        .replace("0.8", alpha.toFixed(3))
+        .replace("0.65", alpha.toFixed(3));
       ctx.lineWidth = pulse.thickness || 2;
       ctx.arc(pulse.x, pulse.y, pulse.radius, 0, Math.PI * 2);
       ctx.stroke();
