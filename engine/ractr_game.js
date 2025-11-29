@@ -1,6 +1,6 @@
 // RactrGame: high-level game orchestrator.
-// Now uses a dedicated state module (ractr_state.js)
-// for RPG/MMO-style state when available.
+// Now relies on RactrGameState (engine/ractr_state.js) for
+// persistent character + run state when available.
 
 class RactrGame {
   constructor(engine) {
@@ -134,7 +134,9 @@ class RactrGame {
       time: 0,
       timeAlive: 0,
       bestTime: 0,
-      state: "intro"
+      state: "intro",
+      applyConfig: null,
+      syncFromSnapshot: null
     };
   }
 
