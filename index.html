@@ -21,12 +21,15 @@
       <!-- Simple overlay HUD -->
       <div class="ractr-hud">
         <div class="hud-left">
-          <span class="hud-label">Use WASD or arrows to move. Space to dash.</span>
+          <span class="hud-label">Use WASD or arrows to move. Space to dash. I to open character sheet.</span>
         </div>
         <div class="hud-right">
           <span id="hud-fps" class="hud-metric">FPS: --</span>
         </div>
       </div>
+
+      <!-- Game UI root (panels, dialogs) -->
+      <div id="ractr-ui-root"></div>
     </main>
 
     <footer class="ractr-footer">
@@ -35,6 +38,10 @@
   </div>
 
   <script src="engine/ractr_engine.js"></script>
+  <script src="engine/ractr_state.js"></script>
+  <script src="engine/ractr_entities.js"></script>
+  <script src="engine/ractr_ui.js"></script>
+  <script src="engine/ractr_net.js"></script>
   <script src="engine/ractr_game.js"></script>
   <script>
     // Boot the engine + game as soon as the page loads
