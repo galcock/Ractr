@@ -1,14 +1,13 @@
-// RactrGame: evolving from a survival mini-game toward an RPG/MMORPG-ready client.
-// This version keeps the existing gameplay but starts to separate concerns:
-// - Lightweight in-memory "state" layer (player, hazards, world meta)
-// - Render helpers for HUD and entities
-// - Clear extension points for future networking and persistence
+// RactrGame: high-level game orchestrator.
+// This version starts separating concerns into state, rendering, and networking
+// modules while preserving the existing survival gameplay and RPG HUD.
 
 class RactrGame {
   constructor(engine) {
     this.engine = engine;
 
-    // Core config (will be refined and split over time)
+    // Core configuration scaffold: engine-level defaults that can be
+    // overridden via engine/ractr_config.json.
     this.config = {
       player: {
         maxHealth: 100,
@@ -26,17 +25,17 @@ class RactrGame {
       },
       hazards: {
         baseSpawnInterval: 1.4,
-        minSpawnInterval: 0.4,
+        minSpawnInterval: 0.5,
         spawnIntervalDecayPerSecond: 0.05,
         baseSpeed: 80,
         randomSpeed: 140,
         damagePerHit: 20,
-        maxOnScreen: 42,
+        maxOnScreen: 40,
         xpOnHitTaken: 2
       },
       difficulty: {
         speedIncreasePerSecond: 10,
-        spawnCountIncreaseTimes: [12, 24, 36]
+        spawnCountIncreaseTimes: [10, 20, 30]
       },
       visuals: {
         backgroundGradient: ["#05060a", "#101426"],
@@ -62,40 +61,16 @@ class RactrGame {
             levelRange: [1, 3]
           }
         }
+      },
+      net: {
+        websocketUrl: "",
+        httpBaseUrl: ""
       }
     };
 
-    // Player entity: this is effectively our local PlayerState.
-    this.player = {
-      x: 200,
-      y: 200,
-      vx: 0,
-      vy: 0,
-      radius: 16,
-      baseSpeed: this.config.player.baseSpeed,
-      dashSpeed: this.config.player.dashSpeed,
-      dashCooldown: 0,
-      maxHealth: this.config.player.maxHealth,
-      health: this.config.player.maxHealth,
-      maxMana: this.config.player.baseMaxMana,
-      mana: this.config.player.baseMaxMana,
-      invulnTime: 0,
-      id: "local-player",
-      name: "Adventurer",
-      classId: "dashblade",
-      level: 1,
-      xp: 0,
-      xpToNext: 100,
-      strength: this.config.player.baseStrength,
-      agility: this.config.player.baseAgility,
-      intelligence: this.config.player.baseIntelligence,
-      attackPower: this.config.player.baseAttackPower,
-      defense: this.config.player.baseDefense,
-      critChance: this.config.player.baseCritChance,
-      gold: 0,
-      inventory: [],
-      zoneId: this.config.meta.startingZoneId
-    };
+    // --- Core game state --------------------------------------------------
+
+    this.player = this._createInitialPlayer();
 
     // Simple enemy/hazard list (will later become proper entities with types).
     this.hazards = [];
@@ -134,12 +109,53 @@ class RactrGame {
     this._cachedHealthText = "";
     this._cachedLevelText = "";
 
+    // Networking scaffold: created but safe to remain disconnected.
+    this.net = new RactrNetClient(this.config.net);
+
     this._attachStartInput();
     this._loadConfig();
 
     if (this.engine && this.engine.canvas && this.engine.canvas.classList) {
       this.engine.canvas.classList.add("ractr-active");
     }
+  }
+
+  // -----------------------------------------------------------------------
+  // Player / world state helpers
+  // -----------------------------------------------------------------------
+
+  _createInitialPlayer() {
+    return {
+      x: 200,
+      y: 200,
+      vx: 0,
+      vy: 0,
+      radius: 16,
+      baseSpeed: this.config.player.baseSpeed,
+      dashSpeed: this.config.player.dashSpeed,
+      dashCooldown: 0,
+      maxHealth: this.config.player.maxHealth,
+      health: this.config.player.maxHealth,
+      maxMana: this.config.player.baseMaxMana,
+      mana: this.config.player.baseMaxMana,
+      invulnTime: 0,
+      id: "local-player",
+      name: "Adventurer",
+      classId: "dashblade",
+      level: 1,
+      xp: 0,
+      xpToNext: 100,
+      strength: this.config.player.baseStrength,
+      agility: this.config.player.baseAgility,
+      intelligence: this.config.player.baseIntelligence,
+      attackPower: this.config.player.baseAttackPower,
+      defense: this.config.player.baseDefense,
+      critChance: this.config.player.baseCritChance,
+      gold: 0,
+      inventory: [],
+      zoneId: this.config.meta.startingZoneId,
+      _initializedFromConfig: false
+    };
   }
 
   // Lightweight PlayerState snapshot suitable for persistence/networking.
@@ -168,7 +184,10 @@ class RactrGame {
     };
   }
 
+  // -----------------------------------------------------------------------
   // Config loading / application
+  // -----------------------------------------------------------------------
+
   _loadConfig() {
     try {
       fetch("engine/ractr_config.json")
@@ -194,6 +213,10 @@ class RactrGame {
           }
           if (cfg.meta) {
             this.config.meta = Object.assign({}, this.config.meta, cfg.meta);
+          }
+          if (cfg.net) {
+            this.config.net = Object.assign({}, this.config.net, cfg.net);
+            this.net.applyConfig(this.config.net);
           }
 
           this._applyConfigToPlayer();
@@ -277,7 +300,10 @@ class RactrGame {
     }
   }
 
+  // -----------------------------------------------------------------------
   // Lifecycle / input
+  // -----------------------------------------------------------------------
+
   _attachStartInput() {
     window.addEventListener("keydown", (e) => {
       if (e.repeat) return;
@@ -318,6 +344,9 @@ class RactrGame {
     this.lastHitTime = -999;
     this.lastNearMissTime = -999;
     this.lastNearMissPulseTime = -999;
+
+    // Notify networking layer that a run has started.
+    this.net.notifyRunStarted(this.getPlayerStateSnapshot());
   }
 
   _difficultyFactor() {
@@ -325,7 +354,10 @@ class RactrGame {
     return t / this.difficultyDuration;
   }
 
+  // -----------------------------------------------------------------------
   // Main frame update
+  // -----------------------------------------------------------------------
+
   update(dt, input) {
     this.time += dt;
     this._updatePulses(dt);
@@ -338,8 +370,8 @@ class RactrGame {
 
     const hCfg = this.config.hazards;
     const factor = this._difficultyFactor();
-    const targetInterval = hCfg.minSpawnInterval;
     const baseInterval = hCfg.baseSpawnInterval;
+    const targetInterval = hCfg.minSpawnInterval;
     const eased = factor * factor * (3 - 2 * factor);
     this.spawnInterval = baseInterval + (targetInterval - baseInterval) * eased;
 
@@ -347,6 +379,13 @@ class RactrGame {
     this._updateHazards(dt);
     this._checkCollisions();
     this._updatePlayerProgression(dt);
+
+    // Networking hooks (safe when disconnected):
+    this.net.tick(dt, {
+      player: this.getPlayerStateSnapshot(),
+      timeAlive: this.timeAlive,
+      zoneId: this.player.zoneId
+    });
   }
 
   _updatePlayer(dt, input) {
@@ -502,7 +541,10 @@ class RactrGame {
     });
   }
 
+  // -----------------------------------------------------------------------
   // Visual pulses
+  // -----------------------------------------------------------------------
+
   _registerPulse(x, y, color, radius, duration, thickness) {
     if (this.pulses.length > 64) {
       this.pulses.shift();
@@ -529,7 +571,10 @@ class RactrGame {
     });
   }
 
-  // Hit detection
+  // -----------------------------------------------------------------------
+  // Hit detection / progression
+  // -----------------------------------------------------------------------
+
   _checkCollisions() {
     const p = this.player;
     const pr = p.radius;
@@ -571,6 +616,10 @@ class RactrGame {
           if (p.health <= 0) {
             this.state = "gameover";
             this.bestTime = Math.max(this.bestTime, this.timeAlive);
+            this.net.notifyRunEnded({
+              player: this.getPlayerStateSnapshot(),
+              timeAlive: this.timeAlive
+            });
           }
         }
       } else {
@@ -604,7 +653,6 @@ class RactrGame {
     }
   }
 
-  // Progression helpers
   _updatePlayerProgression(dt) {
     const pCfg = this.config.player;
     const xpRate = pCfg.baseXpPerSecondSurvived || 0;
@@ -668,11 +716,14 @@ class RactrGame {
     }
 
     if (leveledUp) {
-      // Hook for future level-up UI / networking
+      this.net.notifyLevelUp(this.getPlayerStateSnapshot());
     }
   }
 
+  // -----------------------------------------------------------------------
   // Rendering
+  // -----------------------------------------------------------------------
+
   render(ctx, width, height) {
     const vCfg = this.config.visuals || {};
     const bg0 =
@@ -1073,6 +1124,163 @@ class RactrGame {
     }
 
     ctx.restore();
+  }
+}
+
+// -------------------------------------------------------------------------
+// RactrNetClient: thin client-side networking layer scaffold.
+// -------------------------------------------------------------------------
+
+class RactrNetClient {
+  constructor(config) {
+    this.websocketUrl = (config && config.websocketUrl) || "";
+    this.httpBaseUrl = (config && config.httpBaseUrl) || "";
+
+    this.ws = null;
+    this.wsConnected = false;
+    this.wsLastAttempt = 0;
+    this.wsReconnectDelay = 5; // seconds
+
+    this.playerId = null;
+  }
+
+  applyConfig(config) {
+    this.websocketUrl = config.websocketUrl || this.websocketUrl;
+    this.httpBaseUrl = config.httpBaseUrl || this.httpBaseUrl;
+  }
+
+  // Called each frame; safe when no backend is available.
+  tick(dt, context) {
+    if (!this.websocketUrl) return;
+
+    this.wsLastAttempt += dt;
+    if (!this.ws && this.wsLastAttempt >= this.wsReconnectDelay) {
+      this._tryConnect();
+    }
+
+    if (this.wsConnected && context && context.player) {
+      const payload = {
+        type: "client_tick",
+        player: context.player,
+        timeAlive: context.timeAlive,
+        zoneId: context.zoneId
+      };
+      this._sendJson(payload);
+    }
+  }
+
+  _tryConnect() {
+    this.wsLastAttempt = 0;
+    try {
+      const ws = new WebSocket(this.websocketUrl);
+      this.ws = ws;
+
+      ws.onopen = () => {
+        this.wsConnected = true;
+        const msg = {
+          type: "hello_client",
+          clientVersion: "ractr-web-1",
+          timestamp: Date.now()
+        };
+        this._sendJson(msg);
+      };
+
+      ws.onclose = () => {
+        this.wsConnected = false;
+        this.ws = null;
+      };
+
+      ws.onerror = () => {
+        this.wsConnected = false;
+      };
+
+      ws.onmessage = (event) => {
+        this._handleServerMessage(event.data);
+      };
+    } catch (e) {
+      this.ws = null;
+      this.wsConnected = false;
+    }
+  }
+
+  _sendJson(obj) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    try {
+      this.ws.send(JSON.stringify(obj));
+    } catch (e) {
+      // Swallow errors in absence of a real backend.
+    }
+  }
+
+  _handleServerMessage(raw) {
+    let msg;
+    try {
+      msg = JSON.parse(raw);
+    } catch (e) {
+      return;
+    }
+
+    if (!msg || typeof msg.type !== "string") return;
+
+    switch (msg.type) {
+      case "welcome": {
+        this.playerId = msg.playerId || this.playerId;
+        break;
+      }
+      case "world_snapshot": {
+        // Future: apply world + other player states.
+        break;
+      }
+      case "server_event": {
+        // Future: handle combat log, loot drops, etc.
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  notifyRunStarted(playerSnapshot) {
+    if (!this.httpBaseUrl) return;
+    try {
+      fetch(this.httpBaseUrl + "/runs/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ player: playerSnapshot, ts: Date.now() })
+      }).catch(() => {});
+    } catch (e) {
+      // Ignore; offline-friendly.
+    }
+  }
+
+  notifyRunEnded(payload) {
+    if (!this.httpBaseUrl) return;
+    try {
+      fetch(this.httpBaseUrl + "/runs/end", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          player: payload.player,
+          timeAlive: payload.timeAlive,
+          ts: Date.now()
+        })
+      }).catch(() => {});
+    } catch (e) {
+      // Ignore; offline-friendly.
+    }
+  }
+
+  notifyLevelUp(playerSnapshot) {
+    if (!this.httpBaseUrl) return;
+    try {
+      fetch(this.httpBaseUrl + "/player/levelup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ player: playerSnapshot, ts: Date.now() })
+      }).catch(() => {});
+    } catch (e) {
+      // Ignore; offline-friendly.
+    }
   }
 }
 
