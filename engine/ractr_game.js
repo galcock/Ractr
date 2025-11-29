@@ -1,8 +1,6 @@
 // RactrGame: high-level game orchestrator.
-// Now integrates with the dedicated state module (ractr_state.js)
-// to separate engine loop from RPG/MMO-style state. Falls back to
-// an inline state implementation if the module is absent so the
-// game remains playable in all environments.
+// Now uses a dedicated state module (ractr_state.js)
+// for RPG/MMO-style state when available.
 
 class RactrGame {
   constructor(engine) {
@@ -72,22 +70,18 @@ class RactrGame {
 
     // --- Core game state --------------------------------------------------
 
-    // Prefer dedicated state module when available.
     if (typeof RactrGameState === "function") {
       this.gameState = new RactrGameState(this.config);
     } else {
       this.gameState = this._createLegacyInlineState();
     }
 
-    // Local shortcuts. The authoritative values live on this.gameState.
     this.player = this.gameState.player;
     this.hazards = this.gameState.hazards;
 
-    // Hazard spawning helpers
     this.spawnTimer = 0;
     this.spawnInterval = this.config.hazards.baseSpawnInterval;
 
-    // Orbiters are purely visual.
     this.orbiters = [];
     for (let i = 0; i < 24; i++) {
       this.orbiters.push({
@@ -97,23 +91,18 @@ class RactrGame {
       });
     }
 
-    // Difficulty helpers
     this.difficultyDuration = 60;
 
-    // Feedback / UX
     this.lastHitTime = -999;
     this.lastNearMissTime = -999;
     this.lastNearMissPulseTime = -999;
     this.nearMissStreak = 0;
 
-    // Transient visual pulses
     this.pulses = [];
 
-    // Cached HUD strings
     this._cachedHealthText = "";
     this._cachedLevelText = "";
 
-    // Networking scaffold: created but safe to remain disconnected.
     if (typeof RactrNetClient === "function") {
       this.net = new RactrNetClient(this.config.net);
     } else {
@@ -126,7 +115,6 @@ class RactrGame {
       };
     }
 
-    // Character sheet / UI state
     this.isCharacterSheetOpen = false;
 
     this._attachStartInput();
@@ -137,10 +125,6 @@ class RactrGame {
       this.engine.canvas.classList.add("ractr-active");
     }
   }
-
-  // -----------------------------------------------------------------------
-  // Legacy inline state (fallback when ractr_state.js is absent)
-  // -----------------------------------------------------------------------
 
   _createLegacyInlineState() {
     const player = this._createInitialPlayer();
@@ -153,10 +137,6 @@ class RactrGame {
       state: "intro"
     };
   }
-
-  // -----------------------------------------------------------------------
-  // Player / world state helpers
-  // -----------------------------------------------------------------------
 
   _createInitialPlayer() {
     return {
@@ -215,7 +195,6 @@ class RactrGame {
     };
   }
 
-  // Lightweight PlayerState snapshot suitable for persistence/networking.
   getPlayerStateSnapshot() {
     const p = this.player;
     if (!p) return null;
@@ -244,10 +223,6 @@ class RactrGame {
       zoneId: p.zoneId
     };
   }
-
-  // -----------------------------------------------------------------------
-  // Config loading / application
-  // -----------------------------------------------------------------------
 
   _loadConfig() {
     try {
@@ -282,7 +257,6 @@ class RactrGame {
             }
           }
 
-          // If we have a dedicated state object, let it react to new config.
           if (this.gameState && typeof this.gameState.applyConfig === "function") {
             this.gameState.applyConfig(this.config);
             this.player = this.gameState.player;
@@ -373,10 +347,6 @@ class RactrGame {
     }
   }
 
-  // -----------------------------------------------------------------------
-  // Lifecycle / input
-  // -----------------------------------------------------------------------
-
   _attachStartInput() {
     window.addEventListener("keydown", (e) => {
       if (e.repeat) return;
@@ -426,7 +396,6 @@ class RactrGame {
     if (this.gameState) {
       this.gameState.timeAlive = 0;
       this.gameState.state = "playing";
-      // If using modular state, ensure hazards list is bound
       if (Array.isArray(this.gameState.hazards)) {
         this.hazards = this.gameState.hazards;
       } else {
@@ -449,10 +418,6 @@ class RactrGame {
     const t = Math.max(0, Math.min(this.difficultyDuration, timeAlive));
     return t / this.difficultyDuration;
   }
-
-  // -----------------------------------------------------------------------
-  // Main frame update
-  // -----------------------------------------------------------------------
 
   update(dt, input) {
     if (!this.gameState) return;
@@ -490,7 +455,6 @@ class RactrGame {
       this.net.tick(dt, snapshot);
     }
 
-    // If a richer state system is present, allow it to reconcile.
     if (this.gameState && typeof this.gameState.syncFromSnapshot === "function") {
       this.gameState.syncFromSnapshot(snapshot);
       this.player = this.gameState.player;
@@ -659,10 +623,6 @@ class RactrGame {
     }
   }
 
-  // -----------------------------------------------------------------------
-  // Visual pulses
-  // -----------------------------------------------------------------------
-
   _registerPulse(x, y, color, radius, duration, thickness) {
     if (this.pulses.length > 64) {
       this.pulses.shift();
@@ -688,10 +648,6 @@ class RactrGame {
       return p.life > 0;
     });
   }
-
-  // -----------------------------------------------------------------------
-  // Hit detection / progression
-  // -----------------------------------------------------------------------
 
   _checkCollisions() {
     const p = this.player;
@@ -843,10 +799,6 @@ class RactrGame {
       this.net.notifyLevelUp(this.getPlayerStateSnapshot());
     }
   }
-
-  // -----------------------------------------------------------------------
-  // Rendering
-  // -----------------------------------------------------------------------
 
   render(ctx, width, height) {
     const vCfg = this.config.visuals || {};
