@@ -5,25 +5,53 @@ class RactrGame {
   constructor(engine) {
     this.engine = engine;
 
-    // Player state
+    // Config will be loaded asynchronously from ractr_config.json
+    this.config = {
+      player: {
+        maxHealth: 100,
+        dashCooldown: 0.6,
+        baseSpeed: 180,
+        dashSpeed: 360
+      },
+      hazards: {
+        baseSpawnInterval: 1.4,
+        minSpawnInterval: 0.5,
+        spawnIntervalDecayPerSecond: 0.05,
+        baseSpeed: 80,
+        randomSpeed: 140,
+        damagePerHit: 20,
+        maxOnScreen: 40
+      },
+      difficulty: {
+        speedIncreasePerSecond: 10,
+        spawnCountIncreaseTimes: [10, 20, 30]
+      },
+      visuals: {
+        backgroundGradient: ["#05060a", "#101426"],
+        hazardColor: "rgba(255, 85, 120, ALPHA)",
+        playerCoreColor: "#5f9cff"
+      }
+    };
+
+    // Player state (will be initialized/refreshed from config)
     this.player = {
       x: 200,
       y: 200,
       vx: 0,
       vy: 0,
       radius: 16,
-      baseSpeed: 180,
-      dashSpeed: 360,
+      baseSpeed: this.config.player.baseSpeed,
+      dashSpeed: this.config.player.dashSpeed,
       dashCooldown: 0,
-      maxHealth: 100,
-      health: 100,
+      maxHealth: this.config.player.maxHealth,
+      health: this.config.player.maxHealth,
       invulnTime: 0
     };
 
     // Hazards (red orbs that spawn from edges)
     this.hazards = [];
     this.spawnTimer = 0;
-    this.spawnInterval = 1.4; // seconds, will shrink over time
+    this.spawnInterval = this.config.hazards.baseSpawnInterval;
 
     // Orbiters just for visual flair
     this.orbiters = [];
@@ -41,7 +69,46 @@ class RactrGame {
     this.timeAlive = 0;
     this.bestTime = 0;
 
+    // Difficulty progression helpers
+    this.difficultyDuration = 60; // seconds to reach maximum difficulty
+
     this._attachStartInput();
+    this._loadConfig();
+  }
+
+  _loadConfig() {
+    try {
+      fetch("engine/ractr_config.json")
+        .then((res) => {
+          if (!res.ok) throw new Error("Failed to load ractr_config.json");
+          return res.json();
+        })
+        .then((cfg) => {
+          this.config = cfg;
+          // Apply config values to current runtime state
+          this._applyConfigToPlayer();
+          this.spawnInterval = this.config.hazards.baseSpawnInterval;
+        })
+        .catch(() => {
+          // If loading fails, keep defaults defined in the constructor
+        });
+    } catch (e) {
+      // In very old browsers without fetch, silently keep defaults
+    }
+  }
+
+  _applyConfigToPlayer() {
+    const pCfg = this.config.player;
+    const p = this.player;
+    p.baseSpeed = pCfg.baseSpeed;
+    p.dashSpeed = pCfg.dashSpeed;
+    p.maxHealth = pCfg.maxHealth;
+    // Only reset health fully outside of an active run
+    if (this.state !== "playing") {
+      p.health = p.maxHealth;
+    } else if (p.health > p.maxHealth) {
+      p.health = p.maxHealth;
+    }
   }
 
   _attachStartInput() {
@@ -56,6 +123,9 @@ class RactrGame {
   }
 
   _startGame() {
+    // Ensure latest config is applied when a new run starts
+    this._applyConfigToPlayer();
+
     const canvas = this.engine.canvas;
     const w = canvas.clientWidth || 800;
     const h = canvas.clientHeight || 600;
@@ -70,10 +140,16 @@ class RactrGame {
 
     this.hazards = [];
     this.spawnTimer = 0;
-    this.spawnInterval = 1.4;
+    this.spawnInterval = this.config.hazards.baseSpawnInterval;
 
     this.timeAlive = 0;
     this.state = "playing";
+  }
+
+  _difficultyFactor() {
+    // 0 at start, 1 at or after difficultyDuration seconds
+    const t = Math.max(0, Math.min(this.difficultyDuration, this.timeAlive));
+    return t / this.difficultyDuration;
   }
 
   update(dt, input) {
@@ -86,8 +162,14 @@ class RactrGame {
 
     this.timeAlive += dt;
 
-    // Gradually make the game harder
-    this.spawnInterval = Math.max(0.5, 1.4 - this.timeAlive * 0.05);
+    const hCfg = this.config.hazards;
+
+    // Difficulty scaling over 60 seconds to reach very hard state
+    // Spawn interval shrinks from baseSpawnInterval down to minSpawnInterval
+    const factor = this._difficultyFactor();
+    const targetInterval = hCfg.minSpawnInterval;
+    const baseInterval = hCfg.baseSpawnInterval;
+    this.spawnInterval = baseInterval + (targetInterval - baseInterval) * factor;
 
     this._updatePlayer(dt, input);
     this._updateHazards(dt);
@@ -96,6 +178,7 @@ class RactrGame {
 
   _updatePlayer(dt, input) {
     const p = this.player;
+    const pCfg = this.config.player;
 
     if (p.invulnTime > 0) {
       p.invulnTime = Math.max(0, p.invulnTime - dt);
@@ -104,7 +187,7 @@ class RactrGame {
     let speed = p.baseSpeed;
     if (input.dash && p.dashCooldown <= 0) {
       speed = p.dashSpeed;
-      p.dashCooldown = 0.6; // seconds
+      p.dashCooldown = pCfg.dashCooldown;
     }
     p.dashCooldown = Math.max(0, p.dashCooldown - dt);
 
@@ -133,45 +216,84 @@ class RactrGame {
     p.y = Math.min(Math.max(p.radius + 8, p.y), h - p.radius - 8);
   }
 
+  _currentHazardSpeed() {
+    const hCfg = this.config.hazards;
+    const dCfg = this.config.difficulty;
+    const factor = this._difficultyFactor();
+
+    // Base speed grows to 3x over difficultyDuration
+    const speedMultiplier = 1 + 2 * factor;
+    const base = hCfg.baseSpeed * speedMultiplier;
+
+    // Additional linear increase from difficulty.speedIncreasePerSecond
+    const linearIncrease = (dCfg.speedIncreasePerSecond || 0) * this.timeAlive;
+
+    return base + linearIncrease;
+  }
+
   _spawnHazard() {
     const canvas = this.engine.canvas;
     const w = canvas.clientWidth || 800;
     const h = canvas.clientHeight || 600;
 
-    // Choose a random edge: 0=top,1=right,2=bottom,3=left
-    const edge = Math.floor(Math.random() * 4);
-    const speed = 80 + Math.random() * 140 + this.timeAlive * 10;
-    let x, y, vx, vy;
+    const hCfg = this.config.hazards;
+    const dCfg = this.config.difficulty;
 
-    if (edge === 0) {
-      x = Math.random() * w;
-      y = -20;
-      vx = (Math.random() - 0.5) * 60;
-      vy = speed;
-    } else if (edge === 1) {
-      x = w + 20;
-      y = Math.random() * h;
-      vx = -speed;
-      vy = (Math.random() - 0.5) * 60;
-    } else if (edge === 2) {
-      x = Math.random() * w;
-      y = h + 20;
-      vx = (Math.random() - 0.5) * 60;
-      vy = -speed;
-    } else {
-      x = -20;
-      y = Math.random() * h;
-      vx = speed;
-      vy = (Math.random() - 0.5) * 60;
+    // Scale number of hazards spawned at once based on timeAlive
+    let spawnCount = 1;
+    const times = dCfg.spawnCountIncreaseTimes || [];
+    for (let i = 0; i < times.length; i++) {
+      if (this.timeAlive >= times[i]) {
+        spawnCount++;
+      }
     }
 
-    this.hazards.push({
-      x,
-      y,
-      vx,
-      vy,
-      radius: 10 + Math.random() * 10
-    });
+    const maxOnScreen = hCfg.maxOnScreen || 40;
+    const availableSlots = Math.max(0, maxOnScreen - this.hazards.length);
+    if (availableSlots <= 0) {
+      return;
+    }
+
+    spawnCount = Math.min(spawnCount, availableSlots);
+
+    for (let i = 0; i < spawnCount; i++) {
+      // Choose a random edge: 0=top,1=right,2=bottom,3=left
+      const edge = Math.floor(Math.random() * 4);
+      const baseSpeed = this._currentHazardSpeed();
+      const randomBonus = Math.random() * hCfg.randomSpeed;
+      const speed = baseSpeed + randomBonus;
+      let x, y, vx, vy;
+
+      if (edge === 0) {
+        x = Math.random() * w;
+        y = -20;
+        vx = (Math.random() - 0.5) * 60;
+        vy = speed;
+      } else if (edge === 1) {
+        x = w + 20;
+        y = Math.random() * h;
+        vx = -speed;
+        vy = (Math.random() - 0.5) * 60;
+      } else if (edge === 2) {
+        x = Math.random() * w;
+        y = h + 20;
+        vx = (Math.random() - 0.5) * 60;
+        vy = -speed;
+      } else {
+        x = -20;
+        y = Math.random() * h;
+        vx = speed;
+        vy = (Math.random() - 0.5) * 60;
+      }
+
+      this.hazards.push({
+        x,
+        y,
+        vx,
+        vy,
+        radius: 10 + Math.random() * 10
+      });
+    }
   }
 
   _updateHazards(dt) {
@@ -209,6 +331,9 @@ class RactrGame {
 
     if (p.health <= 0) return;
 
+    const hCfg = this.config.hazards;
+    const damage = hCfg.damagePerHit;
+
     for (const hzd of this.hazards) {
       const dx = hzd.x - p.x;
       const dy = hzd.y - p.y;
@@ -216,7 +341,6 @@ class RactrGame {
       if (dx * dx + dy * dy <= r * r) {
         // Hit: apply damage instead of instant death
         if (p.invulnTime <= 0) {
-          const damage = 25;
           p.health = Math.max(0, p.health - damage);
           // Brief invulnerability to prevent rapid drain from overlapping hazards
           p.invulnTime = 0.4;
@@ -231,10 +355,14 @@ class RactrGame {
   }
 
   render(ctx, width, height) {
+    const vCfg = this.config.visuals || {};
+    const bg0 = (vCfg.backgroundGradient && vCfg.backgroundGradient[0]) || "#05060a";
+    const bg1 = (vCfg.backgroundGradient && vCfg.backgroundGradient[1]) || "#101426";
+
     // Background gradient
     const grd = ctx.createLinearGradient(0, 0, width, height);
-    grd.addColorStop(0, "#05060a");
-    grd.addColorStop(1, "#101426");
+    grd.addColorStop(0, bg0);
+    grd.addColorStop(1, bg1);
     ctx.fillStyle = grd;
     ctx.fillRect(0, 0, width, height);
 
@@ -256,10 +384,12 @@ class RactrGame {
     }
 
     // Hazards
+    const hazardColorTemplate = vCfg.hazardColor || "rgba(255, 85, 120, ALPHA)";
     for (const hzd of this.hazards) {
       ctx.beginPath();
       const alpha = 0.4 + 0.3 * Math.sin(this.time * 5 + hzd.x * 0.02);
-      ctx.fillStyle = `rgba(255, 85, 120, ${alpha.toFixed(3)})`;
+      const color = hazardColorTemplate.replace("ALPHA", alpha.toFixed(3));
+      ctx.fillStyle = color;
       ctx.arc(hzd.x, hzd.y, hzd.radius, 0, Math.PI * 2);
       ctx.fill();
     }
@@ -281,9 +411,15 @@ class RactrGame {
     // Player core (blink slightly when invulnerable)
     const invulnBlink = p.invulnTime > 0 ? (Math.sin(this.time * 40) > 0 ? 1 : 0.4) : 1;
     ctx.beginPath();
-    ctx.fillStyle = `rgba(95,156,255,${invulnBlink})`;
+    const coreColor = vCfg.playerCoreColor || "#5f9cff";
+    const coreColorWithAlpha = coreColor.startsWith("#")
+      ? coreColor
+      : coreColor;
+    ctx.fillStyle = coreColorWithAlpha;
+    ctx.globalAlpha = invulnBlink;
     ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
     ctx.fill();
+    ctx.globalAlpha = 1;
 
     // Player inner pulse
     const pulse = 0.7 + 0.3 * Math.sin(this.time * 8);
@@ -377,7 +513,7 @@ class RactrGame {
       ctx.font = "13px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
       ctx.fillStyle = "rgba(255,255,255,0.85)";
       ctx.fillText(
-        `You survived ${this.timeAlive.toFixed(2)} seconds",
+        `You survived ${this.timeAlive.toFixed(2)} seconds`,
         width / 2,
         height / 2 + 16
       );
