@@ -11,7 +11,13 @@ class RactrGame {
         maxHealth: 100,
         dashCooldown: 0.6,
         baseSpeed: 180,
-        dashSpeed: 360
+        dashSpeed: 360,
+        // RPG-related defaults (will be overridden by config file when present)
+        baseMaxMana: 50,
+        baseAttackPower: 10,
+        baseDefense: 2,
+        baseCritChance: 0.05,
+        baseXpPerSecondSurvived: 1
       },
       hazards: {
         baseSpawnInterval: 1.4,
@@ -20,7 +26,9 @@ class RactrGame {
         baseSpeed: 80,
         randomSpeed: 140,
         damagePerHit: 20,
-        maxOnScreen: 42
+        maxOnScreen: 42,
+        // RPG-ish reward: XP per hazard that "would" be a kill in future combat system
+        xpOnHitTaken: 2
       },
       difficulty: {
         speedIncreasePerSecond: 10,
@@ -30,22 +38,55 @@ class RactrGame {
         backgroundGradient: ["#05060a", "#101426"],
         hazardColor: "rgba(255, 85, 120, ALPHA)",
         playerCoreColor: "#5f9cff"
+      },
+      progression: {
+        // Tunable RPG progression values; when config file is present, it can override these.
+        baseXpToLevel: 100,
+        xpLevelExponent: 1.3,
+        hpPerLevel: 10,
+        manaPerLevel: 5,
+        attackPerLevel: 2,
+        defensePerLevel: 1
       }
     };
 
-    // Player state (will be initialized/refreshed from config)
+    // Core entity representation for the local player. This will evolve toward a
+    // generic Character/Entity model that can be shared between client/server.
     this.player = {
+      // Spatial / physics
       x: 200,
       y: 200,
       vx: 0,
       vy: 0,
       radius: 16,
+
+      // Movement
       baseSpeed: this.config.player.baseSpeed,
       dashSpeed: this.config.player.dashSpeed,
       dashCooldown: 0,
+
+      // Vital resources
       maxHealth: this.config.player.maxHealth,
       health: this.config.player.maxHealth,
-      invulnTime: 0
+      maxMana: this.config.player.baseMaxMana,
+      mana: this.config.player.baseMaxMana,
+      invulnTime: 0,
+
+      // RPG identity & stats
+      id: "local-player", // placeholder stable identifier for future networking
+      name: "Adventurer", // will later be customizable / server-provided
+      classId: "dashblade", // placeholder class archetype
+
+      level: 1,
+      xp: 0,
+      xpToNext: 100,
+      attackPower: this.config.player.baseAttackPower,
+      defense: this.config.player.baseDefense,
+      critChance: this.config.player.baseCritChance,
+
+      // Currency / loot placeholders
+      gold: 0,
+      inventory: []
     };
 
     // Hazards (red orbs that spawn from edges)
@@ -86,6 +127,10 @@ class RactrGame {
     // Cache for HUD text metrics to avoid allocations every frame
     this._cachedHealthText = "";
 
+    // Cache for RPG HUD text
+    this._cachedLevelText = "";
+    this._cachedXpText = "";
+
     this._attachStartInput();
     this._loadConfig();
 
@@ -93,6 +138,29 @@ class RactrGame {
     if (this.engine && this.engine.canvas && this.engine.canvas.classList) {
       this.engine.canvas.classList.add("ractr-active");
     }
+  }
+
+  // Convenience getter for a lightweight PlayerState that could be serialized
+  // or handed to a future networking / persistence layer.
+  getPlayerStateSnapshot() {
+    const p = this.player;
+    return {
+      id: p.id,
+      name: p.name,
+      classId: p.classId,
+      level: p.level,
+      xp: p.xp,
+      xpToNext: p.xpToNext,
+      maxHealth: p.maxHealth,
+      health: p.health,
+      maxMana: p.maxMana,
+      mana: p.mana,
+      attackPower: p.attackPower,
+      defense: p.defense,
+      critChance: p.critChance,
+      gold: p.gold,
+      inventory: p.inventory.slice()
+    };
   }
 
   _loadConfig() {
@@ -103,7 +171,24 @@ class RactrGame {
           return res.json();
         })
         .then((cfg) => {
-          this.config = cfg;
+          // Merge loaded config into defaults, keeping backward compatibility.
+          // We avoid deep magic merging and instead carefully overlay known sections.
+          if (cfg.player) {
+            this.config.player = Object.assign({}, this.config.player, cfg.player);
+          }
+          if (cfg.hazards) {
+            this.config.hazards = Object.assign({}, this.config.hazards, cfg.hazards);
+          }
+          if (cfg.difficulty) {
+            this.config.difficulty = Object.assign({}, this.config.difficulty, cfg.difficulty);
+          }
+          if (cfg.visuals) {
+            this.config.visuals = Object.assign({}, this.config.visuals, cfg.visuals);
+          }
+          if (cfg.progression) {
+            this.config.progression = Object.assign({}, this.config.progression, cfg.progression);
+          }
+
           // Apply config values to current runtime state
           this._applyConfigToPlayer();
           this.spawnInterval = this.config.hazards.baseSpawnInterval;
@@ -118,15 +203,37 @@ class RactrGame {
 
   _applyConfigToPlayer() {
     const pCfg = this.config.player;
+    const progCfg = this.config.progression;
     const p = this.player;
+
     p.baseSpeed = pCfg.baseSpeed;
     p.dashSpeed = pCfg.dashSpeed;
-    p.maxHealth = pCfg.maxHealth;
-    // Only reset health fully outside of an active run
-    if (this.state !== "playing") {
+
+    // If this is first-time initialization, set up RPG bases.
+    if (!p._initializedFromConfig) {
+      p.level = p.level || 1;
+      p.xp = p.xp || 0;
+      p.maxHealth = pCfg.maxHealth;
       p.health = p.maxHealth;
-    } else if (p.health > p.maxHealth) {
-      p.health = p.maxHealth;
+      p.maxMana = pCfg.baseMaxMana;
+      p.mana = p.maxMana;
+      p.attackPower = pCfg.baseAttackPower;
+      p.defense = pCfg.baseDefense;
+      p.critChance = pCfg.baseCritChance;
+      p.xpToNext = this._computeXpForLevel(p.level + 1, progCfg);
+      p._initializedFromConfig = true;
+    } else {
+      // For subsequent config reloads (e.g., tuning), avoid wiping progression,
+      // but clamp resources to new maximums.
+      p.maxHealth = pCfg.maxHealth + (p.level - 1) * (progCfg.hpPerLevel || 0);
+      p.maxMana = pCfg.baseMaxMana + (p.level - 1) * (progCfg.manaPerLevel || 0);
+      if (this.state !== "playing") {
+        p.health = p.maxHealth;
+        p.mana = p.maxMana;
+      } else {
+        if (p.health > p.maxHealth) p.health = p.maxHealth;
+        if (p.mana > p.maxMana) p.mana = p.maxMana;
+      }
     }
   }
 
@@ -149,13 +256,15 @@ class RactrGame {
     const w = canvas.clientWidth || 800;
     const h = canvas.clientHeight || 600;
 
-    this.player.x = w / 2;
-    this.player.y = h / 2;
-    this.player.vx = 0;
-    this.player.vy = 0;
-    this.player.dashCooldown = 0;
-    this.player.health = this.player.maxHealth;
-    this.player.invulnTime = 0;
+    const p = this.player;
+    p.x = w / 2;
+    p.y = h / 2;
+    p.vx = 0;
+    p.vy = 0;
+    p.dashCooldown = 0;
+    p.health = p.maxHealth;
+    p.mana = p.maxMana;
+    p.invulnTime = 0;
 
     this.hazards = [];
     this.spawnTimer = 0.4; // start slightly sooner than full interval for early engagement
@@ -205,6 +314,7 @@ class RactrGame {
     this._updatePlayer(dt, input);
     this._updateHazards(dt);
     this._checkCollisions();
+    this._updatePlayerProgression(dt);
   }
 
   _updatePlayer(dt, input) {
@@ -466,9 +576,81 @@ class RactrGame {
     if (hadHit) {
       // Reset streak on hit
       this.nearMissStreak = 0;
+      // Grant a tiny amount of XP for learning from mistakes (placeholder mechanic)
+      const xpOnHit = hCfg.xpOnHitTaken || 0;
+      if (xpOnHit > 0) {
+        this._grantXp(xpOnHit);
+      }
     } else if (registeredNearMiss) {
       // Build up streak slowly with sustained close calls
       this.nearMissStreak = Math.min(this.nearMissStreak + 1, 99);
+    }
+  }
+
+  _updatePlayerProgression(dt) {
+    const p = this.player;
+    const pCfg = this.config.player;
+
+    // Survival XP: staying alive slowly grants XP over time.
+    const xpRate = pCfg.baseXpPerSecondSurvived || 0;
+    if (xpRate > 0) {
+      this._grantXp(xpRate * dt);
+    }
+
+    // Future hook: combat XP, quest rewards, loot, etc., can also call _grantXp.
+  }
+
+  _computeXpForLevel(level, progCfg) {
+    const base = (progCfg && progCfg.baseXpToLevel) || 100;
+    const exp = (progCfg && progCfg.xpLevelExponent) || 1.3;
+    const clampedLevel = Math.max(1, level);
+    return Math.floor(base * Math.pow(clampedLevel - 1, exp)) + base;
+  }
+
+  _grantXp(amount) {
+    if (amount <= 0) return;
+    const p = this.player;
+    const progCfg = this.config.progression;
+
+    p.xp += amount;
+    let leveledUp = false;
+
+    // Allow multiple level-ups if a big chunk of XP is granted.
+    while (p.xp >= p.xpToNext) {
+      p.xp -= p.xpToNext;
+      p.level += 1;
+      leveledUp = true;
+
+      // Increase stats on level-up.
+      const hpGain = progCfg.hpPerLevel || 0;
+      const manaGain = progCfg.manaPerLevel || 0;
+      const atkGain = progCfg.attackPerLevel || 0;
+      const defGain = progCfg.defensePerLevel || 0;
+
+      p.maxHealth += hpGain;
+      p.maxMana += manaGain;
+      p.attackPower += atkGain;
+      p.defense += defGain;
+
+      // Restore a portion of HP/mana on level-up as a reward.
+      p.health = Math.min(p.maxHealth, p.health + Math.max(5, hpGain));
+      p.mana = Math.min(p.maxMana, p.mana + Math.max(3, manaGain));
+
+      p.xpToNext = this._computeXpForLevel(p.level + 1, progCfg);
+
+      // Visual feedback for level-up
+      this._registerPulse(
+        p.x,
+        p.y,
+        "rgba(120, 230, 255, 0.9)",
+        p.radius + 40,
+        0.6,
+        4
+      );
+    }
+
+    if (leveledUp) {
+      // Placeholder: hook for future level-up SFX, UI banners, etc.
     }
   }
 
@@ -603,7 +785,7 @@ class RactrGame {
     ctx.textAlign = "right";
     ctx.fillText(`Best: ${this.bestTime.toFixed(2)}s`, width - 12, 20);
 
-    // Health bar
+    // Health bar (center top)
     const barWidth = Math.min(220, width * 0.3);
     const barHeight = 10;
     const barX = (width - barWidth) / 2;
@@ -658,6 +840,9 @@ class RactrGame {
       );
     }
 
+    // RPG HUD panel (top-left corner)
+    this._renderRpgHud(ctx, width, height);
+
     // Subtle low-health vignette overlay and global damage flash
     if (healthRatio < 0.35) {
       const vignetteStrength = (1 - healthRatio) * 0.32;
@@ -702,6 +887,102 @@ class RactrGame {
       ctx.fillStyle = "rgba(255,255,255,0.75)";
       ctx.fillText("Press Space or Enter to try again", width / 2, height / 2 + 38);
     }
+
+    ctx.restore();
+  }
+
+  _renderRpgHud(ctx, width, height) {
+    const p = this.player;
+
+    // Clamp the panel to not take too much space on tiny screens
+    const panelPadding = 8;
+    const panelWidth = Math.min(180, width * 0.4);
+    const panelX = panelPadding;
+    const panelY = panelPadding;
+
+    // Background card
+    ctx.save();
+    ctx.translate(panelX, panelY);
+
+    const lineHeight = 12;
+    let currentY = 0;
+
+    const totalLines = 6; // name, level/xp, hp, mana, attack/def, gold
+    const panelHeight = totalLines * lineHeight + 10;
+
+    ctx.fillStyle = "rgba(5, 6, 10, 0.6)";
+    ctx.strokeStyle = "rgba(255,255,255,0.08)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    const radius = 6;
+    const w = panelWidth;
+    const h = panelHeight;
+    ctx.moveTo(radius, 0);
+    ctx.lineTo(w - radius, 0);
+    ctx.quadraticCurveTo(w, 0, w, radius);
+    ctx.lineTo(w, h - radius);
+    ctx.quadraticCurveTo(w, h, w - radius, h);
+    ctx.lineTo(radius, h);
+    ctx.quadraticCurveTo(0, h, 0, h - radius);
+    ctx.lineTo(0, radius);
+    ctx.quadraticCurveTo(0, 0, radius, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Text content
+    ctx.fillStyle = "rgba(255,255,255,0.92)";
+    ctx.font = "11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.textAlign = "left";
+
+    currentY += 12;
+    ctx.fillText(p.name, 8, currentY);
+
+    const xpRatio = Math.max(0, Math.min(1, p.xp / p.xpToNext));
+    const levelText = `Lv ${p.level}`;
+    const xpText = `${Math.floor(p.xp)}/${p.xpToNext}`;
+    const combinedLevelText = `${levelText} · XP ${xpText}`;
+    if (combinedLevelText !== this._cachedLevelText) {
+      this._cachedLevelText = combinedLevelText;
+    }
+
+    ctx.fillStyle = "rgba(190, 210, 255, 0.96)";
+    currentY += lineHeight;
+    ctx.fillText(this._cachedLevelText, 8, currentY);
+
+    // XP bar
+    const xpBarX = 8;
+    const xpBarY = currentY + 3;
+    const xpBarWidth = panelWidth - 16;
+    const xpBarHeight = 4;
+
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    ctx.fillRect(xpBarX, xpBarY, xpBarWidth, xpBarHeight);
+    ctx.fillStyle = "rgba(120, 230, 255, 0.9)";
+    ctx.fillRect(xpBarX, xpBarY, xpBarWidth * xpRatio, xpBarHeight);
+
+    // HP & Mana lines
+    currentY += lineHeight + 6;
+    ctx.fillStyle = "rgba(210, 255, 210, 0.9)";
+    ctx.fillText(`HP ${Math.ceil(p.health)}/${p.maxHealth}`, 8, currentY);
+
+    currentY += lineHeight;
+    ctx.fillStyle = "rgba(200, 220, 255, 0.9)";
+    ctx.fillText(`Mana ${Math.ceil(p.mana)}/${p.maxMana}`, 8, currentY);
+
+    // Offensive / defensive stats
+    currentY += lineHeight;
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.fillText(
+      `ATK ${Math.round(p.attackPower)} · DEF ${Math.round(p.defense)}`,
+      8,
+      currentY
+    );
+
+    // Currency placeholder
+    currentY += lineHeight;
+    ctx.fillStyle = "rgba(245, 215, 110, 0.9)";
+    ctx.fillText(`Gold ${p.gold}`, 8, currentY);
 
     ctx.restore();
   }
