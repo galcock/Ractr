@@ -409,6 +409,12 @@ class RactrGame {
     if (this.gameState) {
       this.gameState.timeAlive = 0;
       this.gameState.state = "playing";
+      // If using modular state, ensure hazards list is bound
+      if (Array.isArray(this.gameState.hazards)) {
+        this.hazards = this.gameState.hazards;
+      } else {
+        this.gameState.hazards = this.hazards;
+      }
     }
 
     this.nearMissStreak = 0;
@@ -631,7 +637,7 @@ class RactrGame {
       return true;
     });
 
-    if (this.gameState && this.gameState.hazards) {
+    if (this.gameState) {
       this.gameState.hazards = this.hazards;
     }
   }
