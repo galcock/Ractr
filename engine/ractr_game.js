@@ -14,7 +14,10 @@ class RactrGame {
       radius: 16,
       baseSpeed: 180,
       dashSpeed: 360,
-      dashCooldown: 0
+      dashCooldown: 0,
+      maxHealth: 100,
+      health: 100,
+      invulnTime: 0
     };
 
     // Hazards (red orbs that spawn from edges)
@@ -62,6 +65,8 @@ class RactrGame {
     this.player.vx = 0;
     this.player.vy = 0;
     this.player.dashCooldown = 0;
+    this.player.health = this.player.maxHealth;
+    this.player.invulnTime = 0;
 
     this.hazards = [];
     this.spawnTimer = 0;
@@ -91,6 +96,10 @@ class RactrGame {
 
   _updatePlayer(dt, input) {
     const p = this.player;
+
+    if (p.invulnTime > 0) {
+      p.invulnTime = Math.max(0, p.invulnTime - dt);
+    }
 
     let speed = p.baseSpeed;
     if (input.dash && p.dashCooldown <= 0) {
@@ -198,15 +207,25 @@ class RactrGame {
     const p = this.player;
     const pr = p.radius;
 
+    if (p.health <= 0) return;
+
     for (const hzd of this.hazards) {
       const dx = hzd.x - p.x;
       const dy = hzd.y - p.y;
       const r = hzd.radius + pr;
       if (dx * dx + dy * dy <= r * r) {
-        // Hit
-        this.state = "gameover";
-        this.bestTime = Math.max(this.bestTime, this.timeAlive);
-        break;
+        // Hit: apply damage instead of instant death
+        if (p.invulnTime <= 0) {
+          const damage = 25;
+          p.health = Math.max(0, p.health - damage);
+          // Brief invulnerability to prevent rapid drain from overlapping hazards
+          p.invulnTime = 0.4;
+
+          if (p.health <= 0) {
+            this.state = "gameover";
+            this.bestTime = Math.max(this.bestTime, this.timeAlive);
+          }
+        }
       }
     }
   }
@@ -259,9 +278,10 @@ class RactrGame {
       ctx.fill();
     }
 
-    // Player core
+    // Player core (blink slightly when invulnerable)
+    const invulnBlink = p.invulnTime > 0 ? (Math.sin(this.time * 40) > 0 ? 1 : 0.4) : 1;
     ctx.beginPath();
-    ctx.fillStyle = "#5f9cff";
+    ctx.fillStyle = `rgba(95,156,255,${invulnBlink})`;
     ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
     ctx.fill();
 
@@ -296,6 +316,40 @@ class RactrGame {
       20
     );
 
+    // Health bar
+    const barWidth = Math.min(220, width * 0.3);
+    const barHeight = 10;
+    const barX = (width - barWidth) / 2;
+    const barY = 32;
+    const healthRatio = Math.max(0, Math.min(1, p.health / p.maxHealth));
+
+    // Background
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    ctx.fillRect(barX, barY, barWidth, barHeight);
+
+    // Health fill with gradient
+    const hpGrd = ctx.createLinearGradient(barX, barY, barX + barWidth, barY);
+    hpGrd.addColorStop(0, "#3dd68c");
+    hpGrd.addColorStop(0.5, "#f5d76e");
+    hpGrd.addColorStop(1, "#ff6b81");
+    ctx.fillStyle = hpGrd;
+    ctx.fillRect(barX, barY, barWidth * healthRatio, barHeight);
+
+    // Border
+    ctx.strokeStyle = "rgba(255,255,255,0.5)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(barX + 0.5, barY + 0.5, barWidth - 1, barHeight - 1);
+
+    // Health text
+    ctx.textAlign = "center";
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.font = "11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.fillText(
+      `Health: ${Math.ceil(p.health)}/${p.maxHealth}`,
+      barX + barWidth / 2,
+      barY - 3
+    );
+
     // State overlays
     ctx.textAlign = "center";
 
@@ -306,7 +360,7 @@ class RactrGame {
       ctx.font = "13px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
       ctx.fillStyle = "rgba(255,255,255,0.8)";
       ctx.fillText(
-        "Move with WASD / arrows. Space to dash. Avoid the red hazards.",
+        "Move with WASD / arrows. Space to dash. Hazards now chip away your health.",
         width / 2,
         height / 2 + 16
       );
@@ -323,7 +377,7 @@ class RactrGame {
       ctx.font = "13px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
       ctx.fillStyle = "rgba(255,255,255,0.85)";
       ctx.fillText(
-        `You survived ${this.timeAlive.toFixed(2)} seconds`,
+        `You survived ${this.timeAlive.toFixed(2)} seconds",
         width / 2,
         height / 2 + 16
       );
