@@ -72,6 +72,10 @@ class RactrGame {
     // Difficulty progression helpers
     this.difficultyDuration = 60; // seconds to reach maximum difficulty
 
+    // Feedback / UX helpers
+    this.lastHitTime = -999; // time of last damaging collision
+    this.lastNearMissTime = -999; // time of last near-miss event
+
     this._attachStartInput();
     this._loadConfig();
   }
@@ -221,12 +225,13 @@ class RactrGame {
     const dCfg = this.config.difficulty;
     const factor = this._difficultyFactor();
 
-    // Base speed grows to 3x over difficultyDuration
-    const speedMultiplier = 1 + 2 * factor;
+    // Base speed grows to 2x over difficultyDuration for a smoother ramp
+    const speedMultiplier = 1 + 1 * factor;
     const base = hCfg.baseSpeed * speedMultiplier;
 
     // Additional linear increase from difficulty.speedIncreasePerSecond
-    const linearIncrease = (dCfg.speedIncreasePerSecond || 0) * this.timeAlive;
+    // Scaled down slightly so the first 60s are challenging but manageable
+    const linearIncrease = (dCfg.speedIncreasePerSecond || 0) * 0.6 * this.timeAlive;
 
     return base + linearIncrease;
   }
@@ -334,21 +339,34 @@ class RactrGame {
     const hCfg = this.config.hazards;
     const damage = hCfg.damagePerHit;
 
+    // Threshold for considering a "near miss" (slightly larger than hit radius)
+    const nearMissPadding = 12;
+
     for (const hzd of this.hazards) {
       const dx = hzd.x - p.x;
       const dy = hzd.y - p.y;
+      const distSq = dx * dx + dy * dy;
       const r = hzd.radius + pr;
-      if (dx * dx + dy * dy <= r * r) {
+      const hitRadiusSq = r * r;
+
+      if (distSq <= hitRadiusSq) {
         // Hit: apply damage instead of instant death
         if (p.invulnTime <= 0) {
           p.health = Math.max(0, p.health - damage);
           // Brief invulnerability to prevent rapid drain from overlapping hazards
           p.invulnTime = 0.4;
+          this.lastHitTime = this.time;
 
           if (p.health <= 0) {
             this.state = "gameover";
             this.bestTime = Math.max(this.bestTime, this.timeAlive);
           }
+        }
+      } else {
+        const nearR = r + nearMissPadding;
+        if (distSq <= nearR * nearR) {
+          // Close, but no damage — register a near miss for subtle feedback
+          this.lastNearMissTime = this.time;
         }
       }
     }
@@ -428,9 +446,18 @@ class RactrGame {
     ctx.arc(p.x, p.y, p.radius * 0.6, 0, Math.PI * 2);
     ctx.fill();
 
-    // Player outline
+    // Player outline with hit/near-miss feedback tint
+    let outlineColor = "#c2dcff";
+    const hitAge = this.time - this.lastHitTime;
+    const nearMissAge = this.time - this.lastNearMissTime;
+    if (hitAge >= 0 && hitAge < 0.25) {
+      outlineColor = "#ff5c7a"; // recent damage
+    } else if (nearMissAge >= 0 && nearMissAge < 0.25) {
+      outlineColor = "#f5d76e"; // near miss
+    }
+
     ctx.beginPath();
-    ctx.strokeStyle = "#c2dcff";
+    ctx.strokeStyle = outlineColor;
     ctx.lineWidth = 2;
     ctx.arc(p.x, p.y, p.radius + 1, 0, Math.PI * 2);
     ctx.stroke();
@@ -496,7 +523,7 @@ class RactrGame {
       ctx.font = "13px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
       ctx.fillStyle = "rgba(255,255,255,0.8)";
       ctx.fillText(
-        "Move with WASD / arrows. Space to dash. Hazards now chip away your health.",
+        "Move with WASD / arrows. Space to dash. Hazards chip away your health.",
         width / 2,
         height / 2 + 16
       );
