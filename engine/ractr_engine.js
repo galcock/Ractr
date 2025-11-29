@@ -118,3 +118,8 @@ class RactrEngine {
     };
   }
 }
+
+// Ensure RactrEngine is globally accessible for index.html
+if (typeof window !== 'undefined') {
+  window.RactrEngine = RactrEngine;
+}
