@@ -1,0 +1,14 @@
+{
+  "name": "ractr-orchestrator",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "ractr_cycle.mjs",
+  "scripts": {
+    "cycle": "node ractr_cycle.mjs"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "openai": "^4.77.0",
+    "node-fetch": "^3.3.2"
+  }
+}
