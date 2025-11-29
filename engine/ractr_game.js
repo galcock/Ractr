@@ -1,7 +1,7 @@
 // RactrGame: high-level game orchestrator.
-// This version keeps the existing survival gameplay but starts to lean on
-// dedicated modules for state (ractr_state.js) and networking (ractr_net.js),
-// paving the way toward a full MMORPG client.
+// This version keeps the existing survival gameplay but now relies on
+// the dedicated state module (ractr_state.js) when available, creating
+// a cleaner separation between engine loop and RPG/MMO-style state.
 
 class RactrGame {
   constructor(engine) {
@@ -71,24 +71,18 @@ class RactrGame {
 
     // --- Core game state --------------------------------------------------
 
-    // If the state module is present, use it. Otherwise, fall back to the
-    // legacy inline state layout for robustness.
+    // If a dedicated state module is present, use it. Otherwise, fall back
+    // to the legacy inline layout for robustness.
     if (typeof RactrGameState === "function") {
       this.gameState = new RactrGameState(this.config);
-      this.player = this.gameState.player;
-      this.hazards = this.gameState.hazards;
-      this.time = this.gameState.time;
-      this.timeAlive = this.gameState.timeAlive;
-      this.bestTime = this.gameState.bestTime;
-      this.state = this.gameState.state;
     } else {
-      this.player = this._createInitialPlayer();
-      this.hazards = [];
-      this.time = 0;
-      this.timeAlive = 0;
-      this.bestTime = 0;
-      this.state = "intro";
+      this.gameState = this._createLegacyInlineState();
     }
+
+    // Local shortcuts to frequently used state pieces. The authoritative
+    // values live on this.gameState, but these references are convenient.
+    this.player = this.gameState.player;
+    this.hazards = this.gameState.hazards;
 
     // Hazard spawning helpers
     this.spawnTimer = 0;
@@ -139,6 +133,22 @@ class RactrGame {
     if (this.engine && this.engine.canvas && this.engine.canvas.classList) {
       this.engine.canvas.classList.add("ractr-active");
     }
+  }
+
+  // -----------------------------------------------------------------------
+  // Legacy inline state (fallback when ractr_state.js is absent)
+  // -----------------------------------------------------------------------
+
+  _createLegacyInlineState() {
+    const player = this._createInitialPlayer();
+    return {
+      player,
+      hazards: [],
+      time: 0,
+      timeAlive: 0,
+      bestTime: 0,
+      state: "intro"
+    };
   }
 
   // -----------------------------------------------------------------------
@@ -245,6 +255,11 @@ class RactrGame {
             }
           }
 
+          // If we have a dedicated state object, let it react to new config.
+          if (this.gameState && typeof this.gameState.applyConfig === "function") {
+            this.gameState.applyConfig(this.config);
+          }
+
           this._applyConfigToPlayer();
           this.spawnInterval = this.config.hazards.baseSpawnInterval;
         })
@@ -260,6 +275,8 @@ class RactrGame {
     const pCfg = this.config.player;
     const progCfg = this.config.progression;
     const p = this.player;
+
+    if (!p) return;
 
     p.baseSpeed = pCfg.baseSpeed;
     p.dashSpeed = pCfg.dashSpeed;
@@ -316,7 +333,8 @@ class RactrGame {
         levelBonus * (progCfg.defensePerLevel || 0);
       p.critChance = pCfg.baseCritChance + p.agility * 0.001;
 
-      if (this.state !== "playing") {
+      const state = this.gameState && this.gameState.state ? this.gameState.state : "intro";
+      if (state !== "playing") {
         p.health = p.maxHealth;
         p.mana = p.maxMana;
       } else {
@@ -334,7 +352,8 @@ class RactrGame {
     window.addEventListener("keydown", (e) => {
       if (e.repeat) return;
       if (e.key === " " || e.key === "Enter") {
-        if (this.state === "intro" || this.state === "gameover") {
+        const state = this.gameState && this.gameState.state ? this.gameState.state : "intro";
+        if (state === "intro" || state === "gameover") {
           this._startGame();
         }
       }
@@ -362,21 +381,24 @@ class RactrGame {
     this.spawnTimer = 0.4;
     this.spawnInterval = this.config.hazards.baseSpawnInterval;
 
-    this.timeAlive = 0;
+    if (this.gameState) {
+      this.gameState.timeAlive = 0;
+      this.gameState.state = "playing";
+    }
+
     this.nearMissStreak = 0;
-    this.state = "playing";
 
     this.pulses.length = 0;
     this.lastHitTime = -999;
     this.lastNearMissTime = -999;
     this.lastNearMissPulseTime = -999;
 
-    // Notify networking layer that a run has started.
     this.net.notifyRunStarted(this.getPlayerStateSnapshot());
   }
 
   _difficultyFactor() {
-    const t = Math.max(0, Math.min(this.difficultyDuration, this.timeAlive));
+    const timeAlive = this.gameState ? this.gameState.timeAlive : 0;
+    const t = Math.max(0, Math.min(this.difficultyDuration, timeAlive));
     return t / this.difficultyDuration;
   }
 
@@ -385,14 +407,18 @@ class RactrGame {
   // -----------------------------------------------------------------------
 
   update(dt, input) {
-    this.time += dt;
+    if (!this.gameState) return;
+
+    this.gameState.time += dt;
+    const timeAliveBefore = this.gameState.timeAlive;
+
     this._updatePulses(dt);
 
-    if (this.state !== "playing") {
+    if (this.gameState.state !== "playing") {
       return;
     }
 
-    this.timeAlive += dt;
+    this.gameState.timeAlive = timeAliveBefore + dt;
 
     const hCfg = this.config.hazards;
     const factor = this._difficultyFactor();
@@ -406,19 +432,26 @@ class RactrGame {
     this._checkCollisions();
     this._updatePlayerProgression(dt);
 
-    // Networking hooks (safe when disconnected):
+    const snapshot = {
+      player: this.getPlayerStateSnapshot(),
+      timeAlive: this.gameState.timeAlive,
+      zoneId: this.player.zoneId
+    };
+
     if (this.net && typeof this.net.tick === "function") {
-      this.net.tick(dt, {
-        player: this.getPlayerStateSnapshot(),
-        timeAlive: this.timeAlive,
-        zoneId: this.player.zoneId
-      });
+      this.net.tick(dt, snapshot);
+    }
+
+    if (this.gameState && typeof this.gameState.syncFromSnapshot === "function") {
+      this.gameState.syncFromSnapshot(snapshot);
     }
   }
 
   _updatePlayer(dt, input) {
     const p = this.player;
     const pCfg = this.config.player;
+
+    if (!p) return;
 
     if (p.invulnTime > 0) {
       p.invulnTime = Math.max(0, p.invulnTime - dt);
@@ -463,8 +496,9 @@ class RactrGame {
     const speedMultiplier = 1 + 0.6 * factor;
     const base = hCfg.baseSpeed * speedMultiplier;
     const linearScale = 0.15;
+    const timeAlive = this.gameState ? this.gameState.timeAlive : 0;
     const linearIncrease =
-      (dCfg.speedIncreasePerSecond || 0) * linearScale * this.timeAlive;
+      (dCfg.speedIncreasePerSecond || 0) * linearScale * timeAlive;
 
     return base + linearIncrease;
   }
@@ -479,8 +513,9 @@ class RactrGame {
 
     let spawnCount = 1;
     const times = dCfg.spawnCountIncreaseTimes || [];
+    const timeAlive = this.gameState ? this.gameState.timeAlive : 0;
     for (let i = 0; i < times.length; i++) {
-      if (this.timeAlive >= times[i]) {
+      if (timeAlive >= times[i]) {
         spawnCount++;
       }
     }
@@ -629,7 +664,7 @@ class RactrGame {
         if (p.invulnTime <= 0) {
           p.health = Math.max(0, p.health - damage);
           p.invulnTime = 0.45;
-          this.lastHitTime = this.time;
+          this.lastHitTime = this.gameState ? this.gameState.time : 0;
           hadHit = true;
 
           this._registerPulse(
@@ -642,11 +677,16 @@ class RactrGame {
           );
 
           if (p.health <= 0) {
-            this.state = "gameover";
-            this.bestTime = Math.max(this.bestTime, this.timeAlive);
+            if (this.gameState) {
+              this.gameState.state = "gameover";
+              this.gameState.bestTime = Math.max(
+                this.gameState.bestTime || 0,
+                this.gameState.timeAlive || 0
+              );
+            }
             this.net.notifyRunEnded({
               player: this.getPlayerStateSnapshot(),
-              timeAlive: this.timeAlive
+              timeAlive: this.gameState ? this.gameState.timeAlive : 0
             });
           }
         }
@@ -654,9 +694,10 @@ class RactrGame {
         const nearR = r + nearMissPadding;
         if (distSq <= nearR * nearR) {
           registeredNearMiss = true;
-          this.lastNearMissTime = this.time;
-          if (this.time - this.lastNearMissPulseTime > nearMissPulseCooldown) {
-            this.lastNearMissPulseTime = this.time;
+          const now = this.gameState ? this.gameState.time : 0;
+          this.lastNearMissTime = now;
+          if (now - this.lastNearMissPulseTime > nearMissPulseCooldown) {
+            this.lastNearMissPulseTime = now;
             this._registerPulse(
               p.x,
               p.y,
@@ -783,7 +824,7 @@ class RactrGame {
       ctx.stroke();
     }
 
-    const timeNow = this.time;
+    const timeNow = this.gameState ? this.gameState.time : 0;
     const hazardColorTemplate =
       vCfg.hazardColor || "rgba(255, 85, 120, ALPHA)";
     ctx.beginPath();
@@ -871,9 +912,11 @@ class RactrGame {
     ctx.font =
       "12px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
     ctx.textAlign = "left";
-    ctx.fillText(`Time: ${this.timeAlive.toFixed(2)}s`, 12, 20);
+    const timeAlive = this.gameState ? this.gameState.timeAlive : 0;
+    const bestTime = this.gameState ? this.gameState.bestTime : 0;
+    ctx.fillText(`Time: ${timeAlive.toFixed(2)}s`, 12, 20);
     ctx.textAlign = "right";
-    ctx.fillText(`Best: ${this.bestTime.toFixed(2)}s`, width - 12, 20);
+    ctx.fillText(`Best: ${bestTime.toFixed(2)}s`, width - 12, 20);
 
     const barWidth = Math.min(220, width * 0.3);
     const barHeight = 10;
@@ -943,7 +986,8 @@ class RactrGame {
 
     ctx.textAlign = "center";
 
-    if (this.state === "intro") {
+    const state = this.gameState ? this.gameState.state : "intro";
+    if (state === "intro") {
       ctx.fillStyle = "rgba(255,255,255,0.92)";
       ctx.font =
         "24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
@@ -962,7 +1006,7 @@ class RactrGame {
         width / 2,
         height / 2 + 38
       );
-    } else if (this.state === "gameover") {
+    } else if (state === "gameover") {
       ctx.fillStyle = "rgba(255,120,140,0.95)";
       ctx.font =
         "24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
@@ -971,7 +1015,7 @@ class RactrGame {
         "13px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
       ctx.fillStyle = "rgba(255,255,255,0.85)";
       ctx.fillText(
-        `You survived ${this.timeAlive.toFixed(2)} seconds`,
+        `You survived ${timeAlive.toFixed(2)} seconds`,
         width / 2,
         height / 2 + 16
       );
