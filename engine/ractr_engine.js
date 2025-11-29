@@ -87,11 +87,13 @@ class RactrEngine {
 
   _hookInput() {
     window.addEventListener("keydown", (e) => {
-      this.keysDown.add(e.key.toLowerCase());
+      const key = e.key.toLowerCase();
+      this.keysDown.add(key);
     });
 
     window.addEventListener("keyup", (e) => {
-      this.keysDown.delete(e.key.toLowerCase());
+      const key = e.key.toLowerCase();
+      this.keysDown.delete(key);
     });
   }
 
@@ -115,6 +117,12 @@ class RactrEngine {
         this.keysDown.has("arrowdown") ||
         this.keysDown.has("j"),
       dash: this.keysDown.has(" ") || this.keysDown.has("shift"),
+      // Higher-level inputs (used by game/UI); these are non-movement keys
+      // and do not affect dash or movement directly.
+      openCharacter: this.keysDown.has("i"),
+      openInventory: this.keysDown.has("b") || this.keysDown.has("\""),
+      confirm: this.keysDown.has("enter"),
+      cancel: this.keysDown.has("escape")
     };
   }
 }
