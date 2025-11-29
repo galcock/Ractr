@@ -1,6 +1,6 @@
 // RactrGame: high-level game orchestrator and single-player client.
-// RactrGame now orchestrates modular subsystems (state, entities, UI,
-// audio, net) while preserving the existing single-player dodge gameplay
+// Now uses modular subsystems (state, entities, UI, audio, net)
+// while preserving the existing single-player dodge gameplay
 // as the "Training Grounds" zone.
 
 class RactrGame {
