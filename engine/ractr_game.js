@@ -185,14 +185,38 @@ class RactrGame {
       gold: 0,
       inventory: [],
       zoneId: this.config.meta.startingZoneId,
-      _initializedFromConfig: false
+      _initializedFromConfig: false,
+      snapshot: function () {
+        return {
+          id: this.id,
+          name: this.name,
+          classId: this.classId,
+          level: this.level,
+          xp: this.xp,
+          xpToNext: this.xpToNext,
+          strength: this.strength,
+          agility: this.agility,
+          intelligence: this.intelligence,
+          maxHealth: this.maxHealth,
+          health: this.health,
+          maxMana: this.maxMana,
+          mana: this.mana,
+          attackPower: this.attackPower,
+          defense: this.defense,
+          critChance: this.critChance,
+          gold: this.gold,
+          inventory: this.inventory.slice(),
+          zoneId: this.zoneId
+        };
+      }
     };
   }
 
   // Lightweight PlayerState snapshot suitable for persistence/networking.
   getPlayerStateSnapshot() {
     const p = this.player;
-    if (p && typeof p.snapshot === "function") {
+    if (!p) return null;
+    if (typeof p.snapshot === "function") {
       return p.snapshot();
     }
     return {
@@ -258,6 +282,8 @@ class RactrGame {
           // If we have a dedicated state object, let it react to new config.
           if (this.gameState && typeof this.gameState.applyConfig === "function") {
             this.gameState.applyConfig(this.config);
+            this.player = this.gameState.player;
+            this.hazards = this.gameState.hazards;
           }
 
           this._applyConfigToPlayer();
@@ -444,6 +470,8 @@ class RactrGame {
 
     if (this.gameState && typeof this.gameState.syncFromSnapshot === "function") {
       this.gameState.syncFromSnapshot(snapshot);
+      this.player = this.gameState.player;
+      this.hazards = this.gameState.hazards;
     }
   }
 
@@ -602,6 +630,10 @@ class RactrGame {
       }
       return true;
     });
+
+    if (this.gameState && this.gameState.hazards) {
+      this.gameState.hazards = this.hazards;
+    }
   }
 
   // -----------------------------------------------------------------------
