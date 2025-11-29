@@ -23,8 +23,8 @@ class RactrGame {
         maxOnScreen: 40
       },
       difficulty: {
-        speedIncreasePerSecond: 6,
-        spawnCountIncreaseTimes: [15, 30, 45]
+        speedIncreasePerSecond: 10,
+        spawnCountIncreaseTimes: [10, 20, 30]
       },
       visuals: {
         backgroundGradient: ["#05060a", "#101426"],
@@ -75,6 +75,7 @@ class RactrGame {
     // Feedback / UX helpers
     this.lastHitTime = -999; // time of last damaging collision
     this.lastNearMissTime = -999; // time of last near-miss event
+    this.lastNearMissPulseTime = -999; // throttle near-miss pulses
 
     // Transient visual effects (small, cheap list)
     this.pulses = [];
@@ -156,6 +157,7 @@ class RactrGame {
     this.pulses.length = 0;
     this.lastHitTime = -999;
     this.lastNearMissTime = -999;
+    this.lastNearMissPulseTime = -999;
   }
 
   _difficultyFactor() {
@@ -243,7 +245,8 @@ class RactrGame {
 
     // Additional linear increase from difficulty.speedIncreasePerSecond
     // Scaled so the first 60s are challenging but manageable
-    const linearIncrease = (dCfg.speedIncreasePerSecond || 0) * 0.4 * this.timeAlive;
+    const linearScale = 0.3; // slightly gentler than before for a smoother ramp
+    const linearIncrease = (dCfg.speedIncreasePerSecond || 0) * linearScale * this.timeAlive;
 
     return base + linearIncrease;
   }
@@ -374,6 +377,7 @@ class RactrGame {
 
     // Threshold for considering a "near miss" (slightly larger than hit radius)
     const nearMissPadding = 12;
+    const nearMissPulseCooldown = 0.08; // limit near-miss flashes for clarity
 
     for (const hzd of this.hazards) {
       const dx = hzd.x - p.x;
@@ -403,7 +407,10 @@ class RactrGame {
         if (distSq <= nearR * nearR) {
           // Close, but no damage — register a near miss for subtle feedback
           this.lastNearMissTime = this.time;
-          this._registerPulse(p.x, p.y, "rgba(245, 215, 110, 0.45)", pr + 14, 0.18);
+          if (this.time - this.lastNearMissPulseTime > nearMissPulseCooldown) {
+            this.lastNearMissPulseTime = this.time;
+            this._registerPulse(p.x, p.y, "rgba(245, 215, 110, 0.45)", pr + 14, 0.18);
+          }
         }
       }
     }
@@ -434,7 +441,7 @@ class RactrGame {
     }
     for (let y = yStart; y < height; y += gridSize) {
       ctx.moveTo(0, y);
-      ctx.lineTo(width, height);
+      ctx.lineTo(width, y);
     }
     ctx.stroke();
 
@@ -468,7 +475,9 @@ class RactrGame {
       const t = pulse.life / pulse.maxLife;
       const alpha = t;
       ctx.beginPath();
-      ctx.strokeStyle = pulse.color.replace("0.55", alpha.toFixed(3)).replace("0.45", alpha.toFixed(3));
+      ctx.strokeStyle = pulse.color
+        .replace("0.55", alpha.toFixed(3))
+        .replace("0.45", alpha.toFixed(3));
       ctx.lineWidth = 2;
       ctx.arc(pulse.x, pulse.y, pulse.radius, 0, Math.PI * 2);
       ctx.stroke();
