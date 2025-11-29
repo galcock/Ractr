@@ -126,7 +126,11 @@ class RactrGame {
       };
     }
 
+    // Character sheet / UI state
+    this.isCharacterSheetOpen = false;
+
     this._attachStartInput();
+    this._attachUiInput();
     this._loadConfig();
 
     if (this.engine && this.engine.canvas && this.engine.canvas.classList) {
@@ -380,6 +384,19 @@ class RactrGame {
         const state = this.gameState && this.gameState.state ? this.gameState.state : "intro";
         if (state === "intro" || state === "gameover") {
           this._startGame();
+        }
+      }
+    });
+  }
+
+  _attachUiInput() {
+    window.addEventListener("keydown", (e) => {
+      if (e.repeat) return;
+      const key = e.key.toLowerCase();
+      if (key === "i") {
+        this.isCharacterSheetOpen = !this.isCharacterSheetOpen;
+        if (typeof RactrUI !== "undefined" && RactrUI && typeof RactrUI.setPanelVisible === "function") {
+          RactrUI.setPanelVisible("character", this.isCharacterSheetOpen, this.getPlayerStateSnapshot());
         }
       }
     });
