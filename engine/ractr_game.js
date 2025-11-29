@@ -23,8 +23,8 @@ class RactrGame {
         maxOnScreen: 40
       },
       difficulty: {
-        speedIncreasePerSecond: 10,
-        spawnCountIncreaseTimes: [10, 20, 30]
+        speedIncreasePerSecond: 6,
+        spawnCountIncreaseTimes: [15, 30, 45]
       },
       visuals: {
         backgroundGradient: ["#05060a", "#101426"],
@@ -75,6 +75,9 @@ class RactrGame {
     // Feedback / UX helpers
     this.lastHitTime = -999; // time of last damaging collision
     this.lastNearMissTime = -999; // time of last near-miss event
+
+    // Transient visual effects (small, cheap list)
+    this.pulses = [];
 
     this._attachStartInput();
     this._loadConfig();
@@ -148,6 +151,11 @@ class RactrGame {
 
     this.timeAlive = 0;
     this.state = "playing";
+
+    // Clear transient effects
+    this.pulses.length = 0;
+    this.lastHitTime = -999;
+    this.lastNearMissTime = -999;
   }
 
   _difficultyFactor() {
@@ -158,6 +166,9 @@ class RactrGame {
 
   update(dt, input) {
     this.time += dt;
+
+    // Update transient visual effects every frame
+    this._updatePulses(dt);
 
     if (this.state !== "playing") {
       // Even in intro / gameover we keep time flowing for visuals
@@ -173,7 +184,8 @@ class RactrGame {
     const factor = this._difficultyFactor();
     const targetInterval = hCfg.minSpawnInterval;
     const baseInterval = hCfg.baseSpawnInterval;
-    this.spawnInterval = baseInterval + (targetInterval - baseInterval) * factor;
+    const eased = factor * factor; // ease-in for gentler start, sharper end
+    this.spawnInterval = baseInterval + (targetInterval - baseInterval) * eased;
 
     this._updatePlayer(dt, input);
     this._updateHazards(dt);
@@ -225,8 +237,8 @@ class RactrGame {
     const dCfg = this.config.difficulty;
     const factor = this._difficultyFactor();
 
-    // Base speed grows to 1.75x over difficultyDuration for a smoother ramp
-    const speedMultiplier = 1 + 0.75 * factor;
+    // Base speed grows to 1.6x over difficultyDuration for a smoother ramp
+    const speedMultiplier = 1 + 0.6 * factor;
     const base = hCfg.baseSpeed * speedMultiplier;
 
     // Additional linear increase from difficulty.speedIncreasePerSecond
@@ -244,7 +256,7 @@ class RactrGame {
     const hCfg = this.config.hazards;
     const dCfg = this.config.difficulty;
 
-    // Scale number of hazards spawned at once based on timeAlive
+    // Smoothly scale number of hazards spawned at once based on timeAlive
     let spawnCount = 1;
     const times = dCfg.spawnCountIncreaseTimes || [];
     for (let i = 0; i < times.length; i++) {
@@ -330,6 +342,27 @@ class RactrGame {
     });
   }
 
+  _registerPulse(x, y, color, radius, duration) {
+    this.pulses.push({
+      x,
+      y,
+      radius,
+      maxRadius: radius,
+      color,
+      life: duration,
+      maxLife: duration
+    });
+  }
+
+  _updatePulses(dt) {
+    if (!this.pulses.length) return;
+    this.pulses = this.pulses.filter((p) => {
+      p.life -= dt;
+      p.radius = p.maxRadius * (p.life / p.maxLife);
+      return p.life > 0;
+    });
+  }
+
   _checkCollisions() {
     const p = this.player;
     const pr = p.radius;
@@ -357,6 +390,9 @@ class RactrGame {
           p.invulnTime = 0.4;
           this.lastHitTime = this.time;
 
+          // Hit pulse feedback
+          this._registerPulse(p.x, p.y, "rgba(255, 90, 120, 0.55)", pr + 18, 0.25);
+
           if (p.health <= 0) {
             this.state = "gameover";
             this.bestTime = Math.max(this.bestTime, this.timeAlive);
@@ -367,6 +403,7 @@ class RactrGame {
         if (distSq <= nearR * nearR) {
           // Close, but no damage — register a near miss for subtle feedback
           this.lastNearMissTime = this.time;
+          this._registerPulse(p.x, p.y, "rgba(245, 215, 110, 0.45)", pr + 14, 0.18);
         }
       }
     }
@@ -384,22 +421,22 @@ class RactrGame {
     ctx.fillStyle = grd;
     ctx.fillRect(0, 0, width, height);
 
-    // Subtle grid
-    ctx.strokeStyle = "rgba(255,255,255,0.03)";
+    // Subtle grid (reduced lines for performance)
+    ctx.strokeStyle = "rgba(255,255,255,0.025)";
     ctx.lineWidth = 1;
-    const gridSize = 40;
-    for (let x = width % gridSize; x < width; x += gridSize) {
-      ctx.beginPath();
+    const gridSize = 56;
+    const xStart = width % gridSize;
+    const yStart = height % gridSize;
+    ctx.beginPath();
+    for (let x = xStart; x < width; x += gridSize) {
       ctx.moveTo(x, 0);
       ctx.lineTo(x, height);
-      ctx.stroke();
     }
-    for (let y = height % gridSize; y < height; y += gridSize) {
-      ctx.beginPath();
+    for (let y = yStart; y < height; y += gridSize) {
       ctx.moveTo(0, y);
       ctx.lineTo(width, height);
-      ctx.stroke();
     }
+    ctx.stroke();
 
     // Hazards
     const hazardColorTemplate = vCfg.hazardColor || "rgba(255, 85, 120, ALPHA)";
@@ -424,6 +461,17 @@ class RactrGame {
       ctx.fillStyle = "rgba(156, 200, 255, 0.55)";
       ctx.arc(ox, oy, r, 0, Math.PI * 2);
       ctx.fill();
+    }
+
+    // Transient pulses (near-miss / hit flashes)
+    for (const pulse of this.pulses) {
+      const t = pulse.life / pulse.maxLife;
+      const alpha = t;
+      ctx.beginPath();
+      ctx.strokeStyle = pulse.color.replace("0.55", alpha.toFixed(3)).replace("0.45", alpha.toFixed(3));
+      ctx.lineWidth = 2;
+      ctx.arc(pulse.x, pulse.y, pulse.radius, 0, Math.PI * 2);
+      ctx.stroke();
     }
 
     // Player core (blink slightly when invulnerable)
@@ -520,10 +568,17 @@ class RactrGame {
       barY - 3
     );
 
-    // Subtle low-health vignette overlay
+    // Subtle low-health vignette overlay and global damage flash
     if (healthRatio < 0.35) {
       const vignetteStrength = (1 - healthRatio) * 0.32;
       ctx.fillStyle = `rgba(255,40,80,${vignetteStrength})`;
+      ctx.fillRect(0, 0, width, height);
+    }
+
+    const recentHitAge = this.time - this.lastHitTime;
+    if (recentHitAge >= 0 && recentHitAge < 0.18) {
+      const fade = 1 - recentHitAge / 0.18;
+      ctx.fillStyle = `rgba(255,90,120,${0.25 * fade})`;
       ctx.fillRect(0, 0, width, height);
     }
 
