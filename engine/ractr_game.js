@@ -1,8 +1,8 @@
 // RactrGame: high-level game orchestrator and single-player client.
-// Uses RactrGameState from ractr_state.js when available for persistent,
-// MMORPG-ready character + world state, but falls back to a lightweight
-// inline state so the game remains fully playable even if that module
-// is missing.
+// In this phase, RactrGame becomes a coordinator that leans on the
+// modular engine surface (state, entities, UI, audio, net) when
+// available, but continues to provide a complete single-player
+// experience via legacy inline logic if any module is missing.
 
 class RactrGame {
   constructor(engine) {
@@ -72,23 +72,23 @@ class RactrGame {
 
     // --- Core game state --------------------------------------------------
 
-    // Prefer the external RactrGameState if present; otherwise fall back
-    // to a minimal inline structure that mimics its shape.
+    // Prefer external RactrGameState if present; otherwise fall back
+    // to a minimal inline structure that mimics its shape closely.
     if (typeof RactrGameState === "function") {
       this.gameState = new RactrGameState(this.config);
     } else {
       this.gameState = this._createLegacyInlineState();
     }
 
-    // Entity accessors (always point at gameState containers)
+    // Entity accessors (always point at gameState containers).
     this.player = this.gameState.player;
     this.hazards = this.gameState.hazards;
 
-    // Legacy hazard spawning values
+    // Legacy hazard spawning values.
     this.spawnTimer = 0;
     this.spawnInterval = this.config.hazards.baseSpawnInterval;
 
-    // Visual orbiters for player representation
+    // Visual orbiters for player representation.
     this.orbiters = [];
     for (let i = 0; i < 24; i++) {
       this.orbiters.push({
@@ -100,20 +100,20 @@ class RactrGame {
 
     this.difficultyDuration = 60;
 
-    // Hit / near-miss feedback
+    // Hit / near-miss feedback.
     this.lastHitTime = -999;
     this.lastNearMissTime = -999;
     this.lastNearMissPulseTime = -999;
     this.nearMissStreak = 0;
 
-    // Pulse visual effects
+    // Pulse visual effects.
     this.pulses = [];
 
-    // Cached HUD strings
+    // Cached HUD strings for minor perf wins.
     this._cachedHealthText = "";
     this._cachedLevelText = "";
 
-    // Optional networking surface
+    // Optional networking surface.
     if (typeof RactrNetClient === "function") {
       this.net = new RactrNetClient(this.config.net);
     } else {
@@ -126,7 +126,7 @@ class RactrGame {
       };
     }
 
-    // Optional UI & audio modules (must fail gracefully)
+    // Optional UI & audio modules (must fail gracefully).
     this.ui = typeof RactrUI !== "undefined" ? RactrUI : null;
     this.audio = typeof RactrAudio !== "undefined" ? RactrAudio : null;
 
@@ -240,7 +240,7 @@ class RactrGame {
       defense: p.defense,
       critChance: p.critChance,
       gold: p.gold,
-      inventory: p.inventory.slice(),
+      inventory: Array.isArray(p.inventory) ? p.inventory.slice() : [],
       zoneId: p.zoneId
     };
   }
