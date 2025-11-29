@@ -77,6 +77,9 @@ class RactrGame {
     this.lastNearMissTime = -999; // time of last near-miss event
     this.lastNearMissPulseTime = -999; // throttle near-miss pulses
 
+    // Near-miss streak for subtle risk-reward feedback
+    this.nearMissStreak = 0;
+
     // Transient visual effects (small, cheap list)
     this.pulses = [];
 
@@ -151,6 +154,7 @@ class RactrGame {
     this.spawnInterval = this.config.hazards.baseSpawnInterval;
 
     this.timeAlive = 0;
+    this.nearMissStreak = 0;
     this.state = "playing";
 
     // Clear transient effects
@@ -186,7 +190,8 @@ class RactrGame {
     const factor = this._difficultyFactor();
     const targetInterval = hCfg.minSpawnInterval;
     const baseInterval = hCfg.baseSpawnInterval;
-    const eased = factor * factor; // ease-in for gentler start, sharper end
+    // Ease-in-out for gentler start and smoother late ramp
+    const eased = factor < 0.5 ? 2 * factor * factor : -1 + (4 - 2 * factor) * factor;
     this.spawnInterval = baseInterval + (targetInterval - baseInterval) * eased;
 
     this._updatePlayer(dt, input);
@@ -239,13 +244,13 @@ class RactrGame {
     const dCfg = this.config.difficulty;
     const factor = this._difficultyFactor();
 
-    // Base speed grows to 1.6x over difficultyDuration for a smoother ramp
-    const speedMultiplier = 1 + 0.6 * factor;
+    // Base speed grows to 1.5x over difficultyDuration for a smoother ramp
+    const speedMultiplier = 1 + 0.5 * factor;
     const base = hCfg.baseSpeed * speedMultiplier;
 
-    // Additional linear increase from difficulty.speedIncreasePerSecond
-    // Scaled so the first 60s are challenging but manageable
-    const linearScale = 0.3; // slightly gentler than before for a smoother ramp
+    // Additional linear increase from difficulty.speedIncreasePerSecond,
+    // scaled down so the first 60s are challenging but manageable.
+    const linearScale = 0.22;
     const linearIncrease = (dCfg.speedIncreasePerSecond || 0) * linearScale * this.timeAlive;
 
     return base + linearIncrease;
@@ -346,6 +351,10 @@ class RactrGame {
   }
 
   _registerPulse(x, y, color, radius, duration) {
+    // Cheap guard against unbounded growth in extreme cases
+    if (this.pulses.length > 64) {
+      this.pulses.shift();
+    }
     this.pulses.push({
       x,
       y,
@@ -379,6 +388,9 @@ class RactrGame {
     const nearMissPadding = 12;
     const nearMissPulseCooldown = 0.08; // limit near-miss flashes for clarity
 
+    let hadHit = false;
+    let registeredNearMiss = false;
+
     for (const hzd of this.hazards) {
       const dx = hzd.x - p.x;
       const dy = hzd.y - p.y;
@@ -393,6 +405,7 @@ class RactrGame {
           // Brief invulnerability to prevent rapid drain from overlapping hazards
           p.invulnTime = 0.4;
           this.lastHitTime = this.time;
+          hadHit = true;
 
           // Hit pulse feedback
           this._registerPulse(p.x, p.y, "rgba(255, 90, 120, 0.55)", pr + 18, 0.25);
@@ -406,6 +419,7 @@ class RactrGame {
         const nearR = r + nearMissPadding;
         if (distSq <= nearR * nearR) {
           // Close, but no damage — register a near miss for subtle feedback
+          registeredNearMiss = true;
           this.lastNearMissTime = this.time;
           if (this.time - this.lastNearMissPulseTime > nearMissPulseCooldown) {
             this.lastNearMissPulseTime = this.time;
@@ -413,6 +427,14 @@ class RactrGame {
           }
         }
       }
+    }
+
+    if (hadHit) {
+      // Reset streak on hit
+      this.nearMissStreak = 0;
+    } else if (registeredNearMiss) {
+      // Build up streak slowly with sustained close calls
+      this.nearMissStreak = Math.min(this.nearMissStreak + 1, 99);
     }
   }
 
@@ -568,6 +590,15 @@ class RactrGame {
     ctx.fillStyle = "rgba(255,255,255,0.85)";
     ctx.font = "11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
     ctx.fillText(`Health: ${Math.ceil(p.health)}/${p.maxHealth}`, barX + barWidth / 2, barY - 3);
+
+    // Near-miss streak indicator (subtle score multiplier hint)
+    if (this.nearMissStreak > 0) {
+      const streakMultiplier = 1 + Math.min(this.nearMissStreak, 20) * 0.05;
+      ctx.fillStyle = "rgba(245, 215, 110, 0.9)";
+      ctx.font = "10px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+      ctx.textAlign = "right";
+      ctx.fillText(`Risk x${streakMultiplier.toFixed(2)}`, width - 12, barY + barHeight + 12);
+    }
 
     // Subtle low-health vignette overlay and global damage flash
     if (healthRatio < 0.35) {
