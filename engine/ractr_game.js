@@ -609,11 +609,16 @@ class RactrGame {
     ctx.lineWidth = 1;
     ctx.strokeRect(barX + 0.5, barY + 0.5, barWidth - 1, barHeight - 1);
 
-    // Health text
+    // Health text with percent for clearer feedback
     ctx.textAlign = "center";
     ctx.fillStyle = "rgba(255,255,255,0.85)";
     ctx.font = "11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-    ctx.fillText(`Health: ${Math.ceil(p.health)}/${p.maxHealth}`, barX + barWidth / 2, barY - 3);
+    const healthPercent = Math.round(healthRatio * 100);
+    ctx.fillText(
+      `Health: ${Math.ceil(p.health)}/${p.maxHealth} (${healthPercent}%)`,
+      barX + barWidth / 2,
+      barY - 3
+    );
 
     // Near-miss streak indicator (subtle score multiplier hint)
     if (this.nearMissStreak > 0) {
@@ -621,7 +626,11 @@ class RactrGame {
       ctx.fillStyle = "rgba(245, 215, 110, 0.9)";
       ctx.font = "10px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
       ctx.textAlign = "right";
-      ctx.fillText(`Risk x${streakMultiplier.toFixed(2)}`, width - 12, barY + barHeight + 12);
+      ctx.fillText(
+        `Risk x${streakMultiplier.toFixed(2)} (${this.nearMissStreak})`,
+        width - 12,
+        barY + barHeight + 12
+      );
     }
 
     // Subtle low-health vignette overlay and global damage flash
