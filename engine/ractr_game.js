@@ -250,7 +250,7 @@ class RactrGame {
 
     // Additional linear increase from difficulty.speedIncreasePerSecond,
     // scaled down so the first 60s are challenging but manageable.
-    const linearScale = 0.22;
+    const linearScale = 0.18;
     const linearIncrease = (dCfg.speedIncreasePerSecond || 0) * linearScale * this.timeAlive;
 
     return base + linearIncrease;
@@ -264,7 +264,7 @@ class RactrGame {
     const hCfg = this.config.hazards;
     const dCfg = this.config.difficulty;
 
-    // Smoothly scale number of hazards spawned at once based on timeAlive
+    // Number of hazards spawned at once based on timeAlive
     let spawnCount = 1;
     const times = dCfg.spawnCountIncreaseTimes || [];
     for (let i = 0; i < times.length; i++) {
@@ -289,34 +289,42 @@ class RactrGame {
       const speed = baseSpeed + randomBonus;
       let x, y, vx, vy;
 
+      // Slight bias so more hazards approach the player rather than exiting quickly
+      const drift = 40;
+
       if (edge === 0) {
         x = Math.random() * w;
         y = -20;
-        vx = (Math.random() - 0.5) * 60;
+        vx = (Math.random() - 0.5) * drift;
         vy = speed;
       } else if (edge === 1) {
         x = w + 20;
         y = Math.random() * h;
         vx = -speed;
-        vy = (Math.random() - 0.5) * 60;
+        vy = (Math.random() - 0.5) * drift;
       } else if (edge === 2) {
         x = Math.random() * w;
         y = h + 20;
-        vx = (Math.random() - 0.5) * 60;
+        vx = (Math.random() - 0.5) * drift;
         vy = -speed;
       } else {
         x = -20;
         y = Math.random() * h;
         vx = speed;
-        vy = (Math.random() - 0.5) * 60;
+        vy = (Math.random() - 0.5) * drift;
       }
+
+      // Slight size variation over time: early game smaller, late game a mix
+      const sizeFactor = 0.5 + 0.5 * this._difficultyFactor();
+      const baseRadius = 8 + Math.random() * 8;
+      const radius = baseRadius * (0.6 + 0.8 * sizeFactor);
 
       this.hazards.push({
         x,
         y,
         vx,
         vy,
-        radius: 10 + Math.random() * 10
+        radius
       });
     }
   }
@@ -350,7 +358,7 @@ class RactrGame {
     });
   }
 
-  _registerPulse(x, y, color, radius, duration) {
+  _registerPulse(x, y, color, radius, duration, thickness) {
     // Cheap guard against unbounded growth in extreme cases
     if (this.pulses.length > 64) {
       this.pulses.shift();
@@ -362,7 +370,8 @@ class RactrGame {
       maxRadius: radius,
       color,
       life: duration,
-      maxLife: duration
+      maxLife: duration,
+      thickness: thickness || 2
     });
   }
 
@@ -370,7 +379,8 @@ class RactrGame {
     if (!this.pulses.length) return;
     this.pulses = this.pulses.filter((p) => {
       p.life -= dt;
-      p.radius = p.maxRadius * (p.life / p.maxLife);
+      const t = p.life / p.maxLife;
+      p.radius = p.maxRadius * t;
       return p.life > 0;
     });
   }
@@ -407,8 +417,15 @@ class RactrGame {
           this.lastHitTime = this.time;
           hadHit = true;
 
-          // Hit pulse feedback
-          this._registerPulse(p.x, p.y, "rgba(255, 90, 120, 0.55)", pr + 18, 0.25);
+          // Hit pulse feedback (thicker, more saturated)
+          this._registerPulse(
+            p.x,
+            p.y,
+            "rgba(255, 90, 120, 0.7)",
+            pr + 24,
+            0.28,
+            3
+          );
 
           if (p.health <= 0) {
             this.state = "gameover";
@@ -423,7 +440,14 @@ class RactrGame {
           this.lastNearMissTime = this.time;
           if (this.time - this.lastNearMissPulseTime > nearMissPulseCooldown) {
             this.lastNearMissPulseTime = this.time;
-            this._registerPulse(p.x, p.y, "rgba(245, 215, 110, 0.45)", pr + 14, 0.18);
+            this._registerPulse(
+              p.x,
+              p.y,
+              "rgba(245, 215, 110, 0.55)",
+              pr + 16,
+              0.2,
+              2
+            );
           }
         }
       }
@@ -504,9 +528,9 @@ class RactrGame {
       const alpha = t;
       ctx.beginPath();
       ctx.strokeStyle = pulse.color
-        .replace("0.55", alpha.toFixed(3))
-        .replace("0.45", alpha.toFixed(3));
-      ctx.lineWidth = 2;
+        .replace("0.7", alpha.toFixed(3))
+        .replace("0.55", alpha.toFixed(3));
+      ctx.lineWidth = pulse.thickness || 2;
       ctx.arc(pulse.x, pulse.y, pulse.radius, 0, Math.PI * 2);
       ctx.stroke();
     }
