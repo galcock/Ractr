@@ -1,18 +1,20 @@
-// RactrGame: simple survival mini-game so ractr.com is instantly playable.
-// Move with WASD / arrows, Space to dash. Avoid red hazards. Survive as long as possible.
+// RactrGame: evolving from a survival mini-game toward an RPG/MMORPG-ready client.
+// This version keeps the existing gameplay but starts to separate concerns:
+// - Lightweight in-memory "state" layer (player, hazards, world meta)
+// - Render helpers for HUD and entities
+// - Clear extension points for future networking and persistence
 
 class RactrGame {
   constructor(engine) {
     this.engine = engine;
 
-    // Config will be loaded asynchronously from ractr_config.json
+    // Core config (will be refined and split over time)
     this.config = {
       player: {
         maxHealth: 100,
         dashCooldown: 0.6,
         baseSpeed: 180,
         dashSpeed: 360,
-        // RPG-related defaults (will be overridden by config file when present)
         baseMaxMana: 50,
         baseAttackPower: 10,
         baseDefense: 2,
@@ -30,7 +32,6 @@ class RactrGame {
         randomSpeed: 140,
         damagePerHit: 20,
         maxOnScreen: 42,
-        // RPG-ish reward: XP per hazard that "would" be a kill in future combat system
         xpOnHitTaken: 2
       },
       difficulty: {
@@ -43,7 +44,6 @@ class RactrGame {
         playerCoreColor: "#5f9cff"
       },
       progression: {
-        // Tunable RPG progression values; when config file is present, it can override these.
         baseXpToLevel: 100,
         xpLevelExponent: 1.3,
         hpPerLevel: 10,
@@ -55,7 +55,6 @@ class RactrGame {
         intelligencePerLevel: 1
       },
       meta: {
-        // Basic world/zone metadata scaffold for future MMORPG expansion.
         startingZoneId: "training_grounds",
         zones: {
           training_grounds: {
@@ -66,61 +65,44 @@ class RactrGame {
       }
     };
 
-    // Core entity representation for the local player. This will evolve toward a
-    // generic Character/Entity model that can be shared between client/server.
+    // Player entity: this is effectively our local PlayerState.
     this.player = {
-      // Spatial / physics
       x: 200,
       y: 200,
       vx: 0,
       vy: 0,
       radius: 16,
-
-      // Movement
       baseSpeed: this.config.player.baseSpeed,
       dashSpeed: this.config.player.dashSpeed,
       dashCooldown: 0,
-
-      // Vital resources
       maxHealth: this.config.player.maxHealth,
       health: this.config.player.maxHealth,
       maxMana: this.config.player.baseMaxMana,
       mana: this.config.player.baseMaxMana,
       invulnTime: 0,
-
-      // RPG identity & stats
-      id: "local-player", // placeholder stable identifier for future networking
-      name: "Adventurer", // will later be customizable / server-provided
-      classId: "dashblade", // placeholder class archetype
-
+      id: "local-player",
+      name: "Adventurer",
+      classId: "dashblade",
       level: 1,
       xp: 0,
       xpToNext: 100,
-
-      // Core attributes
       strength: this.config.player.baseStrength,
       agility: this.config.player.baseAgility,
       intelligence: this.config.player.baseIntelligence,
-
-      // Derived combat stats
       attackPower: this.config.player.baseAttackPower,
       defense: this.config.player.baseDefense,
       critChance: this.config.player.baseCritChance,
-
-      // Currency / loot placeholders
       gold: 0,
       inventory: [],
-
-      // World/zone placement scaffold
       zoneId: this.config.meta.startingZoneId
     };
 
-    // Hazards (red orbs that spawn from edges)
+    // Simple enemy/hazard list (will later become proper entities with types).
     this.hazards = [];
     this.spawnTimer = 0;
     this.spawnInterval = this.config.hazards.baseSpawnInterval;
 
-    // Orbiters just for visual flair
+    // Orbiters are purely visual.
     this.orbiters = [];
     for (let i = 0; i < 24; i++) {
       this.orbiters.push({
@@ -130,43 +112,37 @@ class RactrGame {
       });
     }
 
-    // Game state
-    this.state = "intro"; // "intro" | "playing" | "gameover"
+    // High-level game lifecycle state.
+    this.state = "intro"; // intro | playing | gameover
     this.time = 0;
     this.timeAlive = 0;
     this.bestTime = 0;
 
-    // Difficulty progression helpers
-    this.difficultyDuration = 60; // seconds to reach maximum difficulty
+    // Difficulty helpers
+    this.difficultyDuration = 60;
 
-    // Feedback / UX helpers
-    this.lastHitTime = -999; // time of last damaging collision
-    this.lastNearMissTime = -999; // time of last near-miss event
-    this.lastNearMissPulseTime = -999; // throttle near-miss pulses
-
-    // Near-miss streak for subtle risk-reward feedback
+    // Feedback / UX
+    this.lastHitTime = -999;
+    this.lastNearMissTime = -999;
+    this.lastNearMissPulseTime = -999;
     this.nearMissStreak = 0;
 
-    // Transient visual effects (small, cheap list)
+    // Transient visual pulses
     this.pulses = [];
 
-    // Cache for HUD text metrics to avoid allocations every frame
+    // Cached HUD strings
     this._cachedHealthText = "";
-
-    // Cache for RPG HUD text
     this._cachedLevelText = "";
 
     this._attachStartInput();
     this._loadConfig();
 
-    // Small UX hint: let CSS know a game is active for potential cursor styling
     if (this.engine && this.engine.canvas && this.engine.canvas.classList) {
       this.engine.canvas.classList.add("ractr-active");
     }
   }
 
-  // Convenience getter for a lightweight PlayerState that could be serialized
-  // or handed to a future networking / persistence layer.
+  // Lightweight PlayerState snapshot suitable for persistence/networking.
   getPlayerStateSnapshot() {
     const p = this.player;
     return {
@@ -176,11 +152,9 @@ class RactrGame {
       level: p.level,
       xp: p.xp,
       xpToNext: p.xpToNext,
-      // Core attributes
       strength: p.strength,
       agility: p.agility,
       intelligence: p.intelligence,
-      // Vital/derived combat stats
       maxHealth: p.maxHealth,
       health: p.health,
       maxMana: p.maxMana,
@@ -188,14 +162,13 @@ class RactrGame {
       attackPower: p.attackPower,
       defense: p.defense,
       critChance: p.critChance,
-      // Economy
       gold: p.gold,
       inventory: p.inventory.slice(),
-      // World placement
       zoneId: p.zoneId
     };
   }
 
+  // Config loading / application
   _loadConfig() {
     try {
       fetch("engine/ractr_config.json")
@@ -204,8 +177,6 @@ class RactrGame {
           return res.json();
         })
         .then((cfg) => {
-          // Merge loaded config into defaults, keeping backward compatibility.
-          // We avoid deep magic merging and instead carefully overlay known sections.
           if (cfg.player) {
             this.config.player = Object.assign({}, this.config.player, cfg.player);
           }
@@ -225,16 +196,13 @@ class RactrGame {
             this.config.meta = Object.assign({}, this.config.meta, cfg.meta);
           }
 
-          // Apply config values to current runtime state
           this._applyConfigToPlayer();
           this.spawnInterval = this.config.hazards.baseSpawnInterval;
         })
         .catch(() => {
-          // If loading fails, keep defaults defined in the constructor
           this._applyConfigToPlayer();
         });
     } catch (e) {
-      // In very old browsers without fetch, silently keep defaults
       this._applyConfigToPlayer();
     }
   }
@@ -247,20 +215,20 @@ class RactrGame {
     p.baseSpeed = pCfg.baseSpeed;
     p.dashSpeed = pCfg.dashSpeed;
 
-    // If this is first-time initialization, set up RPG bases.
     if (!p._initializedFromConfig) {
       p.level = p.level || 1;
       p.xp = p.xp || 0;
 
-      // Base attributes
       p.strength = pCfg.baseStrength;
       p.agility = pCfg.baseAgility;
       p.intelligence = pCfg.baseIntelligence;
 
-      // Derive combat stats from attributes (lightweight formula for now)
       p.maxHealth = pCfg.maxHealth + Math.round(p.strength * 1.5);
       p.maxMana = pCfg.baseMaxMana + Math.round(p.intelligence * 1.2);
-      p.attackPower = pCfg.baseAttackPower + Math.round(p.strength * 0.6) + Math.round(p.agility * 0.2);
+      p.attackPower =
+        pCfg.baseAttackPower +
+        Math.round(p.strength * 0.6) +
+        Math.round(p.agility * 0.2);
       p.defense = pCfg.baseDefense + Math.round(p.strength * 0.3);
       p.critChance = pCfg.baseCritChance + p.agility * 0.001;
 
@@ -271,8 +239,6 @@ class RactrGame {
 
       p._initializedFromConfig = true;
     } else {
-      // For subsequent config reloads (e.g., tuning), avoid wiping progression,
-      // but recompute derived stats from level and attributes.
       const levelBonus = p.level - 1;
       const strengthBonus = (progCfg.strengthPerLevel || 0) * levelBonus;
       const agilityBonus = (progCfg.agilityPerLevel || 0) * levelBonus;
@@ -282,10 +248,23 @@ class RactrGame {
       p.agility = pCfg.baseAgility + agilityBonus;
       p.intelligence = pCfg.baseIntelligence + intBonus;
 
-      p.maxHealth = pCfg.maxHealth + Math.round(p.strength * 1.5) + levelBonus * (progCfg.hpPerLevel || 0);
-      p.maxMana = pCfg.baseMaxMana + Math.round(p.intelligence * 1.2) + levelBonus * (progCfg.manaPerLevel || 0);
-      p.attackPower = pCfg.baseAttackPower + Math.round(p.strength * 0.6) + Math.round(p.agility * 0.2) + levelBonus * (progCfg.attackPerLevel || 0);
-      p.defense = pCfg.baseDefense + Math.round(p.strength * 0.3) + levelBonus * (progCfg.defensePerLevel || 0);
+      p.maxHealth =
+        pCfg.maxHealth +
+        Math.round(p.strength * 1.5) +
+        levelBonus * (progCfg.hpPerLevel || 0);
+      p.maxMana =
+        pCfg.baseMaxMana +
+        Math.round(p.intelligence * 1.2) +
+        levelBonus * (progCfg.manaPerLevel || 0);
+      p.attackPower =
+        pCfg.baseAttackPower +
+        Math.round(p.strength * 0.6) +
+        Math.round(p.agility * 0.2) +
+        levelBonus * (progCfg.attackPerLevel || 0);
+      p.defense =
+        pCfg.baseDefense +
+        Math.round(p.strength * 0.3) +
+        levelBonus * (progCfg.defensePerLevel || 0);
       p.critChance = pCfg.baseCritChance + p.agility * 0.001;
 
       if (this.state !== "playing") {
@@ -298,6 +277,7 @@ class RactrGame {
     }
   }
 
+  // Lifecycle / input
   _attachStartInput() {
     window.addEventListener("keydown", (e) => {
       if (e.repeat) return;
@@ -310,7 +290,6 @@ class RactrGame {
   }
 
   _startGame() {
-    // Ensure latest config is applied when a new run starts
     this._applyConfigToPlayer();
 
     const canvas = this.engine.canvas;
@@ -328,14 +307,13 @@ class RactrGame {
     p.invulnTime = 0;
 
     this.hazards = [];
-    this.spawnTimer = 0.4; // start slightly sooner than full interval for early engagement
+    this.spawnTimer = 0.4;
     this.spawnInterval = this.config.hazards.baseSpawnInterval;
 
     this.timeAlive = 0;
     this.nearMissStreak = 0;
     this.state = "playing";
 
-    // Clear transient effects
     this.pulses.length = 0;
     this.lastHitTime = -999;
     this.lastNearMissTime = -999;
@@ -343,32 +321,25 @@ class RactrGame {
   }
 
   _difficultyFactor() {
-    // 0 at start, 1 at or after difficultyDuration seconds
     const t = Math.max(0, Math.min(this.difficultyDuration, this.timeAlive));
     return t / this.difficultyDuration;
   }
 
+  // Main frame update
   update(dt, input) {
     this.time += dt;
-
-    // Update transient visual effects every frame
     this._updatePulses(dt);
 
     if (this.state !== "playing") {
-      // Even in intro / gameover we keep time flowing for visuals
       return;
     }
 
     this.timeAlive += dt;
 
     const hCfg = this.config.hazards;
-
-    // Difficulty scaling over ~60 seconds to reach very hard state
-    // Spawn interval shrinks from baseSpawnInterval down to minSpawnInterval
     const factor = this._difficultyFactor();
     const targetInterval = hCfg.minSpawnInterval;
     const baseInterval = hCfg.baseSpawnInterval;
-    // Smoothstep for gentler start and smoother late ramp
     const eased = factor * factor * (3 - 2 * factor);
     this.spawnInterval = baseInterval + (targetInterval - baseInterval) * eased;
 
@@ -410,7 +381,6 @@ class RactrGame {
     p.x += p.vx * dt;
     p.y += p.vy * dt;
 
-    // Clamp to canvas bounds in CSS pixels
     const canvas = this.engine.canvas;
     const w = canvas.clientWidth || 800;
     const h = canvas.clientHeight || 600;
@@ -423,14 +393,11 @@ class RactrGame {
     const dCfg = this.config.difficulty;
     const factor = this._difficultyFactor();
 
-    // Base speed grows to 1.6x over difficultyDuration for a smoother ramp
     const speedMultiplier = 1 + 0.6 * factor;
     const base = hCfg.baseSpeed * speedMultiplier;
-
-    // Additional linear increase from difficulty.speedIncreasePerSecond,
-    // scaled so the first 60s are challenging but manageable.
     const linearScale = 0.15;
-    const linearIncrease = (dCfg.speedIncreasePerSecond || 0) * linearScale * this.timeAlive;
+    const linearIncrease =
+      (dCfg.speedIncreasePerSecond || 0) * linearScale * this.timeAlive;
 
     return base + linearIncrease;
   }
@@ -443,7 +410,6 @@ class RactrGame {
     const hCfg = this.config.hazards;
     const dCfg = this.config.difficulty;
 
-    // Number of hazards spawned at once based on timeAlive
     let spawnCount = 1;
     const times = dCfg.spawnCountIncreaseTimes || [];
     for (let i = 0; i < times.length; i++) {
@@ -461,14 +427,14 @@ class RactrGame {
     spawnCount = Math.min(spawnCount, availableSlots);
 
     for (let i = 0; i < spawnCount; i++) {
-      // Choose a random edge: 0=top,1=right,2=bottom,3=left
       const edge = Math.floor(Math.random() * 4);
       const baseSpeed = this._currentHazardSpeed();
       const randomBonus = Math.random() * hCfg.randomSpeed;
       const speed = baseSpeed + randomBonus;
-      let x, y, vx, vy;
-
-      // Slight bias so more hazards approach the player rather than exiting quickly
+      let x;
+      let y;
+      let vx;
+      let vy;
       const drift = 40;
 
       if (edge === 0) {
@@ -493,7 +459,6 @@ class RactrGame {
         vy = (Math.random() - 0.5) * drift;
       }
 
-      // Slight size variation over time: early game smaller, late game a mix
       const sizeFactor = 0.5 + 0.5 * this._difficultyFactor();
       const baseRadius = 8 + Math.random() * 8;
       const radius = baseRadius * (0.6 + 0.8 * sizeFactor);
@@ -504,7 +469,6 @@ class RactrGame {
         vx,
         vy,
         radius,
-        // Cache radius squared for cheaper collision checks
         radiusSq: radius * radius
       });
     }
@@ -527,7 +491,6 @@ class RactrGame {
     const minY = -margin;
     const maxY = h + margin;
 
-    // Move hazards and cull those far off-screen
     this.hazards = this.hazards.filter((hzd) => {
       hzd.x += hzd.vx * dt;
       hzd.y += hzd.vy * dt;
@@ -539,8 +502,8 @@ class RactrGame {
     });
   }
 
+  // Visual pulses
   _registerPulse(x, y, color, radius, duration, thickness) {
-    // Cheap guard against unbounded growth in extreme cases
     if (this.pulses.length > 64) {
       this.pulses.shift();
     }
@@ -566,6 +529,7 @@ class RactrGame {
     });
   }
 
+  // Hit detection
   _checkCollisions() {
     const p = this.player;
     const pr = p.radius;
@@ -575,9 +539,8 @@ class RactrGame {
     const hCfg = this.config.hazards;
     const damage = hCfg.damagePerHit;
 
-    // Threshold for considering a "near miss" (slightly larger than hit radius)
     const nearMissPadding = 14;
-    const nearMissPulseCooldown = 0.09; // limit near-miss flashes for clarity
+    const nearMissPulseCooldown = 0.09;
 
     let hadHit = false;
     let registeredNearMiss = false;
@@ -590,15 +553,12 @@ class RactrGame {
       const hitRadiusSq = r * r;
 
       if (distSq <= hitRadiusSq) {
-        // Hit: apply damage instead of instant death
         if (p.invulnTime <= 0) {
           p.health = Math.max(0, p.health - damage);
-          // Brief invulnerability to prevent rapid drain from overlapping hazards
           p.invulnTime = 0.45;
           this.lastHitTime = this.time;
           hadHit = true;
 
-          // Hit pulse feedback (thicker, more saturated)
           this._registerPulse(
             p.x,
             p.y,
@@ -616,7 +576,6 @@ class RactrGame {
       } else {
         const nearR = r + nearMissPadding;
         if (distSq <= nearR * nearR) {
-          // Close, but no damage — register a near miss for subtle feedback
           registeredNearMiss = true;
           this.lastNearMissTime = this.time;
           if (this.time - this.lastNearMissPulseTime > nearMissPulseCooldown) {
@@ -635,30 +594,23 @@ class RactrGame {
     }
 
     if (hadHit) {
-      // Reset streak on hit
       this.nearMissStreak = 0;
-      // Grant a tiny amount of XP for learning from mistakes (placeholder mechanic)
       const xpOnHit = hCfg.xpOnHitTaken || 0;
       if (xpOnHit > 0) {
         this._grantXp(xpOnHit);
       }
     } else if (registeredNearMiss) {
-      // Build up streak slowly with sustained close calls
       this.nearMissStreak = Math.min(this.nearMissStreak + 1, 99);
     }
   }
 
+  // Progression helpers
   _updatePlayerProgression(dt) {
-    const p = this.player;
     const pCfg = this.config.player;
-
-    // Survival XP: staying alive slowly grants XP over time.
     const xpRate = pCfg.baseXpPerSecondSurvived || 0;
     if (xpRate > 0) {
       this._grantXp(xpRate * dt);
     }
-
-    // Future hook: combat XP, quest rewards, loot, etc., can also call _grantXp.
   }
 
   _computeXpForLevel(level, progCfg) {
@@ -676,13 +628,11 @@ class RactrGame {
     p.xp += amount;
     let leveledUp = false;
 
-    // Allow multiple level-ups if a big chunk of XP is granted.
     while (p.xp >= p.xpToNext) {
       p.xp -= p.xpToNext;
       p.level += 1;
       leveledUp = true;
 
-      // Increase attributes on level-up.
       const strGain = progCfg.strengthPerLevel || 0;
       const agiGain = progCfg.agilityPerLevel || 0;
       const intGain = progCfg.intelligencePerLevel || 0;
@@ -690,7 +640,6 @@ class RactrGame {
       p.agility += agiGain;
       p.intelligence += intGain;
 
-      // Increase stats on level-up.
       const hpGain = progCfg.hpPerLevel || 0;
       const manaGain = progCfg.manaPerLevel || 0;
       const atkGain = progCfg.attackPerLevel || 0;
@@ -698,17 +647,16 @@ class RactrGame {
 
       p.maxHealth += hpGain + Math.round(strGain * 1.5);
       p.maxMana += manaGain + Math.round(intGain * 1.2);
-      p.attackPower += atkGain + Math.round(strGain * 0.6) + Math.round(agiGain * 0.2);
+      p.attackPower +=
+        atkGain + Math.round(strGain * 0.6) + Math.round(agiGain * 0.2);
       p.defense += defGain + Math.round(strGain * 0.3);
       p.critChance += agiGain * 0.001;
 
-      // Restore a portion of HP/mana on level-up as a reward.
       p.health = Math.min(p.maxHealth, p.health + Math.max(5, hpGain));
       p.mana = Math.min(p.maxMana, p.mana + Math.max(3, manaGain));
 
       p.xpToNext = this._computeXpForLevel(p.level + 1, progCfg);
 
-      // Visual feedback for level-up
       this._registerPulse(
         p.x,
         p.y,
@@ -720,23 +668,24 @@ class RactrGame {
     }
 
     if (leveledUp) {
-      // Placeholder: hook for future level-up SFX, UI banners, etc.
+      // Hook for future level-up UI / networking
     }
   }
 
+  // Rendering
   render(ctx, width, height) {
     const vCfg = this.config.visuals || {};
-    const bg0 = (vCfg.backgroundGradient && vCfg.backgroundGradient[0]) || "#05060a";
-    const bg1 = (vCfg.backgroundGradient && vCfg.backgroundGradient[1]) || "#101426";
+    const bg0 =
+      (vCfg.backgroundGradient && vCfg.backgroundGradient[0]) || "#05060a";
+    const bg1 =
+      (vCfg.backgroundGradient && vCfg.backgroundGradient[1]) || "#101426";
 
-    // Background gradient
     const grd = ctx.createLinearGradient(0, 0, width, height);
     grd.addColorStop(0, bg0);
     grd.addColorStop(1, bg1);
     ctx.fillStyle = grd;
     ctx.fillRect(0, 0, width, height);
 
-    // Subtle grid (skip on very small canvases for perf)
     if (width > 320 && height > 240) {
       ctx.strokeStyle = "rgba(255,255,255,0.025)";
       ctx.lineWidth = 1;
@@ -755,11 +704,9 @@ class RactrGame {
       ctx.stroke();
     }
 
-    // Cache some values for this frame
     const timeNow = this.time;
-
-    // Hazards (core fill)
-    const hazardColorTemplate = vCfg.hazardColor || "rgba(255, 85, 120, ALPHA)";
+    const hazardColorTemplate =
+      vCfg.hazardColor || "rgba(255, 85, 120, ALPHA)";
     ctx.beginPath();
     for (const hzd of this.hazards) {
       const alpha = 0.45 + 0.25 * Math.sin(timeNow * 5 + hzd.x * 0.02);
@@ -770,7 +717,6 @@ class RactrGame {
     }
     ctx.fill();
 
-    // Hazard difficulty accent ring for clearer danger feedback
     if (this.hazards.length) {
       const dangerFactor = this._difficultyFactor();
       const accentAlpha = 0.1 + 0.35 * dangerFactor;
@@ -785,21 +731,18 @@ class RactrGame {
       }
     }
 
-    // Orbiters around the player
     const p = this.player;
     ctx.fillStyle = "rgba(156, 200, 255, 0.55)";
     for (const orb of this.orbiters) {
       const angle = orb.angle + timeNow * orb.speed;
       const ox = p.x + Math.cos(angle) * orb.radius;
       const oy = p.y + Math.sin(angle) * orb.radius;
-
       const r = 3 + (orb.radius % 5);
       ctx.beginPath();
       ctx.arc(ox, oy, r, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // Transient pulses (near-miss / hit flashes)
     for (const pulse of this.pulses) {
       const t = pulse.life / pulse.maxLife;
       const alpha = t;
@@ -812,8 +755,8 @@ class RactrGame {
       ctx.stroke();
     }
 
-    // Player core (blink slightly when invulnerable)
-    const invulnBlink = p.invulnTime > 0 ? (Math.sin(timeNow * 40) > 0 ? 1 : 0.4) : 1;
+    const invulnBlink =
+      p.invulnTime > 0 ? (Math.sin(timeNow * 40) > 0 ? 1 : 0.4) : 1;
     ctx.beginPath();
     const coreColor = vCfg.playerCoreColor || "#5f9cff";
     const coreColorWithAlpha = coreColor.startsWith("#") ? coreColor : coreColor;
@@ -823,21 +766,19 @@ class RactrGame {
     ctx.fill();
     ctx.globalAlpha = 1;
 
-    // Player inner pulse
     const innerPulse = 0.7 + 0.3 * Math.sin(timeNow * 8);
     ctx.beginPath();
     ctx.fillStyle = `rgba(255,255,255,${0.15 + 0.25 * innerPulse})`;
     ctx.arc(p.x, p.y, p.radius * 0.6, 0, Math.PI * 2);
     ctx.fill();
 
-    // Player outline with hit/near-miss feedback tint
     let outlineColor = "#c2dcff";
     const hitAge = timeNow - this.lastHitTime;
     const nearMissAge = timeNow - this.lastNearMissTime;
     if (hitAge >= 0 && hitAge < 0.28) {
-      outlineColor = "#ff5c7a"; // recent damage
+      outlineColor = "#ff5c7a";
     } else if (nearMissAge >= 0 && nearMissAge < 0.25) {
-      outlineColor = "#f5d76e"; // near miss
+      outlineColor = "#f5d76e";
     }
 
     ctx.beginPath();
@@ -846,27 +787,24 @@ class RactrGame {
     ctx.arc(p.x, p.y, p.radius + 1, 0, Math.PI * 2);
     ctx.stroke();
 
-    // HUD text (in-canvas)
     ctx.save();
     ctx.fillStyle = "rgba(255,255,255,0.9)";
-    ctx.font = "12px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.font =
+      "12px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
     ctx.textAlign = "left";
     ctx.fillText(`Time: ${this.timeAlive.toFixed(2)}s`, 12, 20);
     ctx.textAlign = "right";
     ctx.fillText(`Best: ${this.bestTime.toFixed(2)}s`, width - 12, 20);
 
-    // Health bar (center top)
     const barWidth = Math.min(220, width * 0.3);
     const barHeight = 10;
     const barX = (width - barWidth) / 2;
     const barY = 32;
     const healthRatio = Math.max(0, Math.min(1, p.health / p.maxHealth));
 
-    // Background
     ctx.fillStyle = "rgba(255,255,255,0.08)";
     ctx.fillRect(barX, barY, barWidth, barHeight);
 
-    // Health fill with gradient
     const hpGrd = ctx.createLinearGradient(barX, barY, barX + barWidth, barY);
     hpGrd.addColorStop(0, "#3dd68c");
     hpGrd.addColorStop(0.5, "#f5d76e");
@@ -874,22 +812,20 @@ class RactrGame {
     ctx.fillStyle = hpGrd;
     ctx.fillRect(barX, barY, barWidth * healthRatio, barHeight);
 
-    // Low-health overlay on bar
     if (healthRatio < 0.35) {
       const warningPulse = 0.5 + 0.5 * Math.sin(timeNow * 6);
       ctx.fillStyle = `rgba(255,0,40,${0.25 * warningPulse})`;
       ctx.fillRect(barX, barY, barWidth * healthRatio, barHeight);
     }
 
-    // Border
     ctx.strokeStyle = "rgba(255,255,255,0.5)";
     ctx.lineWidth = 1;
     ctx.strokeRect(barX + 0.5, barY + 0.5, barWidth - 1, barHeight - 1);
 
-    // Health text with percent for clearer feedback
     ctx.textAlign = "center";
     ctx.fillStyle = "rgba(255,255,255,0.85)";
-    ctx.font = "11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.font =
+      "11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
     const healthPercent = Math.round(healthRatio * 100);
     const healthText = `Health: ${Math.ceil(p.health)}/${p.maxHealth} (${healthPercent}%)`;
     if (healthText !== this._cachedHealthText) {
@@ -897,11 +833,11 @@ class RactrGame {
     }
     ctx.fillText(this._cachedHealthText, barX + barWidth / 2, barY - 3);
 
-    // Near-miss streak indicator (subtle score multiplier hint)
     if (this.nearMissStreak > 0) {
       const streakMultiplier = 1 + Math.min(this.nearMissStreak, 20) * 0.05;
       ctx.fillStyle = "rgba(245, 215, 110, 0.9)";
-      ctx.font = "10px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+      ctx.font =
+        "10px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
       ctx.textAlign = "right";
       ctx.fillText(
         `Risk x${streakMultiplier.toFixed(2)} (${this.nearMissStreak})`,
@@ -910,13 +846,9 @@ class RactrGame {
       );
     }
 
-    // RPG HUD panel (top-left corner)
     this._renderRpgHud(ctx, width, height);
-
-    // World / zone HUD panel (top-right)
     this._renderZoneHud(ctx, width, height);
 
-    // Subtle low-health vignette overlay and global damage flash
     if (healthRatio < 0.35) {
       const vignetteStrength = (1 - healthRatio) * 0.32;
       ctx.fillStyle = `rgba(255,40,80,${vignetteStrength})`;
@@ -930,14 +862,15 @@ class RactrGame {
       ctx.fillRect(0, 0, width, height);
     }
 
-    // State overlays
     ctx.textAlign = "center";
 
     if (this.state === "intro") {
       ctx.fillStyle = "rgba(255,255,255,0.92)";
-      ctx.font = "24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+      ctx.font =
+        "24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
       ctx.fillText("RACTR ENGINE · DASH", width / 2, height / 2 - 10);
-      ctx.font = "13px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+      ctx.font =
+        "13px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
       ctx.fillStyle = "rgba(255,255,255,0.8)";
       ctx.fillText(
         "Move with WASD / arrows. Space to dash. Hazards chip away your health.",
@@ -945,12 +878,18 @@ class RactrGame {
         height / 2 + 16
       );
       ctx.fillStyle = "rgba(255,255,255,0.7)";
-      ctx.fillText("Press Space or Enter to start", width / 2, height / 2 + 38);
+      ctx.fillText(
+        "Press Space or Enter to start",
+        width / 2,
+        height / 2 + 38
+      );
     } else if (this.state === "gameover") {
       ctx.fillStyle = "rgba(255,120,140,0.95)";
-      ctx.font = "24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+      ctx.font =
+        "24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
       ctx.fillText("GAME OVER", width / 2, height / 2 - 10);
-      ctx.font = "13px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+      ctx.font =
+        "13px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
       ctx.fillStyle = "rgba(255,255,255,0.85)";
       ctx.fillText(
         `You survived ${this.timeAlive.toFixed(2)} seconds`,
@@ -958,7 +897,11 @@ class RactrGame {
         height / 2 + 16
       );
       ctx.fillStyle = "rgba(255,255,255,0.75)";
-      ctx.fillText("Press Space or Enter to try again", width / 2, height / 2 + 38);
+      ctx.fillText(
+        "Press Space or Enter to try again",
+        width / 2,
+        height / 2 + 38
+      );
     }
 
     ctx.restore();
@@ -967,20 +910,17 @@ class RactrGame {
   _renderRpgHud(ctx, width, height) {
     const p = this.player;
 
-    // Clamp the panel to not take too much space on tiny screens
     const panelPadding = 8;
     const panelWidth = Math.min(200, width * 0.45);
     const panelX = panelPadding;
     const panelY = panelPadding;
 
-    // Background card
     ctx.save();
     ctx.translate(panelX, panelY);
 
     const lineHeight = 12;
     let currentY = 0;
-
-    const totalLines = 8; // name, class, level/xp, hp, mana, attributes, combat stats, gold
+    const totalLines = 8;
     const panelHeight = totalLines * lineHeight + 12;
 
     ctx.fillStyle = "rgba(5, 6, 10, 0.6)";
@@ -1003,9 +943,9 @@ class RactrGame {
     ctx.fill();
     ctx.stroke();
 
-    // Text content
     ctx.fillStyle = "rgba(255,255,255,0.92)";
-    ctx.font = "11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.font =
+      "11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
     ctx.textAlign = "left";
 
     currentY += 12;
@@ -1027,7 +967,6 @@ class RactrGame {
     currentY += lineHeight;
     ctx.fillText(this._cachedLevelText, 8, currentY);
 
-    // XP bar
     const xpBarX = 8;
     const xpBarY = currentY + 3;
     const xpBarWidth = panelWidth - 16;
@@ -1038,35 +977,43 @@ class RactrGame {
     ctx.fillStyle = "rgba(120, 230, 255, 0.9)";
     ctx.fillRect(xpBarX, xpBarY, xpBarWidth * xpRatio, xpBarHeight);
 
-    // HP & Mana lines
     currentY += lineHeight + 6;
     ctx.fillStyle = "rgba(210, 255, 210, 0.9)";
-    ctx.fillText(`HP ${Math.ceil(p.health)}/${p.maxHealth}`, 8, currentY);
-
-    currentY += lineHeight;
-    ctx.fillStyle = "rgba(200, 220, 255, 0.9)";
-    ctx.fillText(`Mana ${Math.ceil(p.mana)}/${p.maxMana}`, 8, currentY);
-
-    // Core attributes line
-    currentY += lineHeight;
-    ctx.fillStyle = "rgba(255,255,255,0.85)";
     ctx.fillText(
-      `STR ${Math.round(p.strength)}  AGI ${Math.round(p.agility)}  INT ${Math.round(p.intelligence)}`,
+      `HP ${Math.ceil(p.health)}/${p.maxHealth}`,
       8,
       currentY
     );
 
-    // Offensive / defensive combat stats
+    currentY += lineHeight;
+    ctx.fillStyle = "rgba(200, 220, 255, 0.9)";
+    ctx.fillText(
+      `Mana ${Math.ceil(p.mana)}/${p.maxMana}`,
+      8,
+      currentY
+    );
+
+    currentY += lineHeight;
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.fillText(
+      `STR ${Math.round(p.strength)}  AGI ${Math.round(
+        p.agility
+      )}  INT ${Math.round(p.intelligence)}`,
+      8,
+      currentY
+    );
+
     currentY += lineHeight;
     ctx.fillStyle = "rgba(255,255,255,0.85)";
     const critPercent = (p.critChance * 100).toFixed(1);
     ctx.fillText(
-      `ATK ${Math.round(p.attackPower)}  DEF ${Math.round(p.defense)}  Crit ${critPercent}%`,
+      `ATK ${Math.round(p.attackPower)}  DEF ${Math.round(
+        p.defense
+      )}  Crit ${critPercent}%`,
       8,
       currentY
     );
 
-    // Currency placeholder
     currentY += lineHeight;
     ctx.fillStyle = "rgba(245, 215, 110, 0.9)";
     ctx.fillText(`Gold ${p.gold}`, 8, currentY);
@@ -1080,7 +1027,10 @@ class RactrGame {
     const zone = (meta.zones && meta.zones[p.zoneId]) || null;
 
     const label = zone ? zone.name : "Unknown Zone";
-    const range = zone && zone.levelRange ? `Lv ${zone.levelRange[0]}–${zone.levelRange[1]}` : "";
+    const range =
+      zone && zone.levelRange
+        ? `Lv ${zone.levelRange[0]}–${zone.levelRange[1]}`
+        : "";
 
     const padding = 8;
     const panelWidth = Math.min(170, width * 0.35);
@@ -1091,7 +1041,6 @@ class RactrGame {
     ctx.save();
     ctx.translate(panelX, panelY);
 
-    // Background card
     ctx.fillStyle = "rgba(5, 6, 10, 0.6)";
     ctx.strokeStyle = "rgba(255,255,255,0.08)";
     ctx.lineWidth = 1;
@@ -1112,7 +1061,8 @@ class RactrGame {
     ctx.fill();
     ctx.stroke();
 
-    ctx.font = "11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.font =
+      "11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
     ctx.textAlign = "left";
     ctx.fillStyle = "rgba(210, 225, 255, 0.96)";
     ctx.fillText(label, 8, 13);
@@ -1126,7 +1076,6 @@ class RactrGame {
   }
 }
 
-// Ensure RactrGame is globally accessible for index.html
 if (typeof window !== "undefined") {
   window.RactrGame = RactrGame;
 }
