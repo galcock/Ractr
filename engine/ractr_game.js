@@ -225,13 +225,13 @@ class RactrGame {
     const dCfg = this.config.difficulty;
     const factor = this._difficultyFactor();
 
-    // Base speed grows to 2x over difficultyDuration for a smoother ramp
-    const speedMultiplier = 1 + 1 * factor;
+    // Base speed grows to 1.75x over difficultyDuration for a smoother ramp
+    const speedMultiplier = 1 + 0.75 * factor;
     const base = hCfg.baseSpeed * speedMultiplier;
 
     // Additional linear increase from difficulty.speedIncreasePerSecond
-    // Scaled down slightly so the first 60s are challenging but manageable
-    const linearIncrease = (dCfg.speedIncreasePerSecond || 0) * 0.6 * this.timeAlive;
+    // Scaled so the first 60s are challenging but manageable
+    const linearIncrease = (dCfg.speedIncreasePerSecond || 0) * 0.4 * this.timeAlive;
 
     return base + linearIncrease;
   }
@@ -312,18 +312,18 @@ class RactrGame {
     const w = canvas.clientWidth || 800;
     const h = canvas.clientHeight || 600;
 
+    const margin = 80;
+    const minX = -margin;
+    const maxX = w + margin;
+    const minY = -margin;
+    const maxY = h + margin;
+
     // Move hazards and cull those far off-screen
     this.hazards = this.hazards.filter((hzd) => {
       hzd.x += hzd.vx * dt;
       hzd.y += hzd.vy * dt;
 
-      const margin = 80;
-      if (
-        hzd.x < -margin ||
-        hzd.x > w + margin ||
-        hzd.y < -margin ||
-        hzd.y > h + margin
-      ) {
+      if (hzd.x < minX || hzd.x > maxX || hzd.y < minY || hzd.y > maxY) {
         return false;
       }
       return true;
@@ -498,6 +498,13 @@ class RactrGame {
     ctx.fillStyle = hpGrd;
     ctx.fillRect(barX, barY, barWidth * healthRatio, barHeight);
 
+    // Low-health overlay on bar
+    if (healthRatio < 0.35) {
+      const warningPulse = 0.5 + 0.5 * Math.sin(this.time * 6);
+      ctx.fillStyle = `rgba(255,0,40,${0.25 * warningPulse})`;
+      ctx.fillRect(barX, barY, barWidth * healthRatio, barHeight);
+    }
+
     // Border
     ctx.strokeStyle = "rgba(255,255,255,0.5)";
     ctx.lineWidth = 1;
@@ -512,6 +519,13 @@ class RactrGame {
       barX + barWidth / 2,
       barY - 3
     );
+
+    // Subtle low-health vignette overlay
+    if (healthRatio < 0.35) {
+      const vignetteStrength = (1 - healthRatio) * 0.32;
+      ctx.fillStyle = `rgba(255,40,80,${vignetteStrength})`;
+      ctx.fillRect(0, 0, width, height);
+    }
 
     // State overlays
     ctx.textAlign = "center";
