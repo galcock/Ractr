@@ -83,6 +83,9 @@ class RactrGame {
     // Transient visual effects (small, cheap list)
     this.pulses = [];
 
+    // Cache for HUD text metrics to avoid allocations every frame
+    this._cachedHealthText = "";
+
     this._attachStartInput();
     this._loadConfig();
   }
@@ -185,13 +188,13 @@ class RactrGame {
 
     const hCfg = this.config.hazards;
 
-    // Difficulty scaling over 60 seconds to reach very hard state
+    // Difficulty scaling over ~60 seconds to reach very hard state
     // Spawn interval shrinks from baseSpawnInterval down to minSpawnInterval
     const factor = this._difficultyFactor();
     const targetInterval = hCfg.minSpawnInterval;
     const baseInterval = hCfg.baseSpawnInterval;
-    // Ease-in-out for gentler start and smoother late ramp
-    const eased = factor < 0.5 ? 2 * factor * factor : -1 + (4 - 2 * factor) * factor;
+    // Smoothstep for gentler start and smoother late ramp
+    const eased = factor * factor * (3 - 2 * factor);
     this.spawnInterval = baseInterval + (targetInterval - baseInterval) * eased;
 
     this._updatePlayer(dt, input);
@@ -244,13 +247,13 @@ class RactrGame {
     const dCfg = this.config.difficulty;
     const factor = this._difficultyFactor();
 
-    // Base speed grows to 1.5x over difficultyDuration for a smoother ramp
-    const speedMultiplier = 1 + 0.5 * factor;
+    // Base speed grows to 1.6x over difficultyDuration for a smoother ramp
+    const speedMultiplier = 1 + 0.6 * factor;
     const base = hCfg.baseSpeed * speedMultiplier;
 
     // Additional linear increase from difficulty.speedIncreasePerSecond,
-    // scaled down so the first 60s are challenging but manageable.
-    const linearScale = 0.18;
+    // scaled so the first 60s are challenging but manageable.
+    const linearScale = 0.15;
     const linearIncrease = (dCfg.speedIncreasePerSecond || 0) * linearScale * this.timeAlive;
 
     return base + linearIncrease;
@@ -398,7 +401,7 @@ class RactrGame {
 
     // Threshold for considering a "near miss" (slightly larger than hit radius)
     const nearMissPadding = 14;
-    const nearMissPulseCooldown = 0.07; // limit near-miss flashes for clarity
+    const nearMissPulseCooldown = 0.09; // limit near-miss flashes for clarity
 
     let hadHit = false;
     let registeredNearMiss = false;
@@ -423,9 +426,9 @@ class RactrGame {
           this._registerPulse(
             p.x,
             p.y,
-            "rgba(255, 90, 120, 0.8)",
-            pr + 28,
-            0.3,
+            "rgba(255, 90, 120, 0.9)",
+            pr + 32,
+            0.32,
             3.5
           );
 
@@ -445,9 +448,9 @@ class RactrGame {
             this._registerPulse(
               p.x,
               p.y,
-              "rgba(245, 215, 110, 0.65)",
-              pr + 18,
-              0.22,
+              "rgba(245, 215, 110, 0.8)",
+              pr + 20,
+              0.24,
               2.4
             );
           }
@@ -502,7 +505,7 @@ class RactrGame {
     const hazardColorTemplate = vCfg.hazardColor || "rgba(255, 85, 120, ALPHA)";
     ctx.beginPath();
     for (const hzd of this.hazards) {
-      const alpha = 0.4 + 0.3 * Math.sin(timeNow * 5 + hzd.x * 0.02);
+      const alpha = 0.45 + 0.25 * Math.sin(timeNow * 5 + hzd.x * 0.02);
       const color = hazardColorTemplate.replace("ALPHA", alpha.toFixed(3));
       ctx.fillStyle = color;
       ctx.moveTo(hzd.x + hzd.radius, hzd.y);
@@ -530,8 +533,8 @@ class RactrGame {
       const alpha = t;
       ctx.beginPath();
       ctx.strokeStyle = pulse.color
-        .replace("0.8", alpha.toFixed(3))
-        .replace("0.65", alpha.toFixed(3));
+        .replace("0.9", alpha.toFixed(3))
+        .replace("0.8", alpha.toFixed(3));
       ctx.lineWidth = pulse.thickness || 2;
       ctx.arc(pulse.x, pulse.y, pulse.radius, 0, Math.PI * 2);
       ctx.stroke();
@@ -559,7 +562,7 @@ class RactrGame {
     let outlineColor = "#c2dcff";
     const hitAge = timeNow - this.lastHitTime;
     const nearMissAge = timeNow - this.lastNearMissTime;
-    if (hitAge >= 0 && hitAge < 0.25) {
+    if (hitAge >= 0 && hitAge < 0.28) {
       outlineColor = "#ff5c7a"; // recent damage
     } else if (nearMissAge >= 0 && nearMissAge < 0.25) {
       outlineColor = "#f5d76e"; // near miss
@@ -616,11 +619,11 @@ class RactrGame {
     ctx.fillStyle = "rgba(255,255,255,0.85)";
     ctx.font = "11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
     const healthPercent = Math.round(healthRatio * 100);
-    ctx.fillText(
-      `Health: ${Math.ceil(p.health)}/${p.maxHealth} (${healthPercent}%)`,
-      barX + barWidth / 2,
-      barY - 3
-    );
+    const healthText = `Health: ${Math.ceil(p.health)}/${p.maxHealth} (${healthPercent}%)`;
+    if (healthText !== this._cachedHealthText) {
+      this._cachedHealthText = healthText;
+    }
+    ctx.fillText(this._cachedHealthText, barX + barWidth / 2, barY - 3);
 
     // Near-miss streak indicator (subtle score multiplier hint)
     if (this.nearMissStreak > 0) {
