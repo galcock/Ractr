@@ -1078,7 +1078,7 @@ class RactrGame {
       ctx.fillStyle = "rgba(255,255,255,0.92)";
       ctx.font =
         "24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-      ctx.fillText("RACTR ENGINE · DASH", width / 2, height / 2 - 10);
+      ctx.fillText("RACTR ENGINE  b7 DASH", width / 2, height / 2 - 10);
       ctx.font =
         "13px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
       ctx.fillStyle = "rgba(255,255,255,0.8)";
@@ -1168,7 +1168,7 @@ class RactrGame {
     const xpRatio = Math.max(0, Math.min(1, p.xp / p.xpToNext));
     const levelText = `Lv ${p.level}`;
     const xpText = `${Math.floor(p.xp)}/${p.xpToNext}`;
-    const combinedLevelText = `${levelText} · XP ${xpText}`;
+    const combinedLevelText = `${levelText}  b7 XP ${xpText}`;
     if (combinedLevelText !== this._cachedLevelText) {
       this._cachedLevelText = combinedLevelText;
     }
@@ -1239,7 +1239,7 @@ class RactrGame {
     const label = zone ? zone.name : "Unknown Zone";
     const range =
       zone && zone.levelRange
-        ? `Lv ${zone.levelRange[0]}–${zone.levelRange[1]}`
+        ? `Lv ${zone.levelRange[0]} d7${zone.levelRange[1]}`
         : "";
 
     const padding = 8;
