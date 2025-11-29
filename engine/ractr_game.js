@@ -1,7 +1,8 @@
-// RactrGame: high-level game orchestrator.
-// Now prefers a dedicated RactrGameState (in ractr_state.js) for
-// long-lived world + player state, but keeps legacy behavior as
-// a safe fallback so the game remains fully playable.
+// RactrGame: high-level game orchestrator and single-player client.
+// Uses RactrGameState from ractr_state.js when available for persistent,
+// MMORPG-ready character + world state, but falls back to a lightweight
+// inline state so the game remains fully playable even if that module
+// is missing.
 
 class RactrGame {
   constructor(engine) {
