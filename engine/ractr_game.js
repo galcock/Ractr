@@ -624,3 +624,8 @@ class RactrGame {
     ctx.restore();
   }
 }
+
+// Ensure RactrGame is globally accessible for index.html
+if (typeof window !== 'undefined') {
+  window.RactrGame = RactrGame;
+}
