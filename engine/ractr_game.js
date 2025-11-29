@@ -1,8 +1,7 @@
 // RactrGame: high-level game orchestrator and single-player client.
-// In this phase, RactrGame becomes a coordinator that leans on the
-// modular engine surface (state, entities, UI, audio, net) when
-// available, but continues to provide a complete single-player
-// experience via legacy inline logic if any module is missing.
+// In this phase, RactrGame becomes an orchestration layer that delegates
+// to modular subsystems (state, entities, UI, audio, net) while preserving
+// the existing single-player dodge gameplay as the "Training Grounds" zone.
 
 class RactrGame {
   constructor(engine) {
@@ -60,7 +59,9 @@ class RactrGame {
         zones: {
           training_grounds: {
             name: "Training Grounds",
-            levelRange: [1, 3]
+            levelRange: [1, 3],
+            description: "Hazard-dodge arena used as the first combat tutorial.",
+            type: "arena"
           }
         }
       },
@@ -153,7 +154,7 @@ class RactrGame {
       time: 0,
       timeAlive: 0,
       bestTime: 0,
-      state: "intro",
+      state: "intro", // intro | playing | gameover
       applyConfig: null,
       syncFromSnapshot: null
     };
