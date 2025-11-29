@@ -1,6 +1,7 @@
 // RactrGame: high-level game orchestrator.
-// Now relies on RactrGameState (engine/ractr_state.js) for
-// persistent character + run state when available.
+// This version delegates state, entities, UI, audio, and networking
+// to dedicated modules when available, while preserving the existing
+// single-player dash-survival gameplay as a fallback.
 
 class RactrGame {
   constructor(engine) {
@@ -70,18 +71,22 @@ class RactrGame {
 
     // --- Core game state --------------------------------------------------
 
+    // Prefer external state module when available
     if (typeof RactrGameState === "function") {
       this.gameState = new RactrGameState(this.config);
     } else {
       this.gameState = this._createLegacyInlineState();
     }
 
+    // Entity accessors (always point at gameState containers)
     this.player = this.gameState.player;
     this.hazards = this.gameState.hazards;
 
+    // Legacy hazard spawning values
     this.spawnTimer = 0;
     this.spawnInterval = this.config.hazards.baseSpawnInterval;
 
+    // Visual orbiters for player representation
     this.orbiters = [];
     for (let i = 0; i < 24; i++) {
       this.orbiters.push({
@@ -93,16 +98,20 @@ class RactrGame {
 
     this.difficultyDuration = 60;
 
+    // Hit / near-miss feedback
     this.lastHitTime = -999;
     this.lastNearMissTime = -999;
     this.lastNearMissPulseTime = -999;
     this.nearMissStreak = 0;
 
+    // Pulse visual effects
     this.pulses = [];
 
+    // Cached HUD strings
     this._cachedHealthText = "";
     this._cachedLevelText = "";
 
+    // Optional networking surface
     if (typeof RactrNetClient === "function") {
       this.net = new RactrNetClient(this.config.net);
     } else {
@@ -115,6 +124,10 @@ class RactrGame {
       };
     }
 
+    // Optional UI & audio modules (must fail gracefully)
+    this.ui = typeof RactrUI !== "undefined" ? RactrUI : null;
+    this.audio = typeof RactrAudio !== "undefined" ? RactrAudio : null;
+
     this.isCharacterSheetOpen = false;
 
     this._attachStartInput();
@@ -125,6 +138,10 @@ class RactrGame {
       this.engine.canvas.classList.add("ractr-active");
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // State initialization and configuration
+  // ---------------------------------------------------------------------------
 
   _createLegacyInlineState() {
     const player = this._createInitialPlayer();
@@ -349,6 +366,10 @@ class RactrGame {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Input wiring
+  // ---------------------------------------------------------------------------
+
   _attachStartInput() {
     window.addEventListener("keydown", (e) => {
       if (e.repeat) return;
@@ -367,12 +388,16 @@ class RactrGame {
       const key = e.key.toLowerCase();
       if (key === "i") {
         this.isCharacterSheetOpen = !this.isCharacterSheetOpen;
-        if (typeof RactrUI !== "undefined" && RactrUI && typeof RactrUI.setPanelVisible === "function") {
-          RactrUI.setPanelVisible("character", this.isCharacterSheetOpen, this.getPlayerStateSnapshot());
+        if (this.ui && typeof this.ui.setPanelVisible === "function") {
+          this.ui.setPanelVisible("character", this.isCharacterSheetOpen, this.getPlayerStateSnapshot());
         }
       }
     });
   }
+
+  // ---------------------------------------------------------------------------
+  // Game lifecycle
+  // ---------------------------------------------------------------------------
 
   _startGame() {
     this._applyConfigToPlayer();
@@ -412,6 +437,10 @@ class RactrGame {
     this.lastNearMissTime = -999;
     this.lastNearMissPulseTime = -999;
 
+    if (this.audio && typeof this.audio.onRunStarted === "function") {
+      this.audio.onRunStarted();
+    }
+
     this.net.notifyRunStarted(this.getPlayerStateSnapshot());
   }
 
@@ -421,6 +450,10 @@ class RactrGame {
     return t / this.difficultyDuration;
   }
 
+  // ---------------------------------------------------------------------------
+  // Update loop
+  // ---------------------------------------------------------------------------
+
   update(dt, input) {
     if (!this.gameState) return;
 
@@ -429,7 +462,14 @@ class RactrGame {
 
     this._updatePulses(dt);
 
-    if (this.gameState.state !== "playing") {
+    const state = this.gameState.state;
+    if (state !== "playing") {
+      if (this.ui && typeof this.ui.update === "function") {
+        this.ui.update(dt, { state: this.gameState, player: this.player });
+      }
+      if (this.audio && typeof this.audio.update === "function") {
+        this.audio.update(dt, { state: this.gameState, player: this.player });
+      }
       return;
     }
 
@@ -462,6 +502,14 @@ class RactrGame {
       this.player = this.gameState.player;
       this.hazards = this.gameState.hazards;
     }
+
+    if (this.ui && typeof this.ui.update === "function") {
+      this.ui.update(dt, { state: this.gameState, player: this.player });
+    }
+
+    if (this.audio && typeof this.audio.update === "function") {
+      this.audio.update(dt, { state: this.gameState, player: this.player });
+    }
   }
 
   _updatePlayer(dt, input) {
@@ -478,6 +526,9 @@ class RactrGame {
     if (input.dash && p.dashCooldown <= 0) {
       speed = p.dashSpeed;
       p.dashCooldown = pCfg.dashCooldown;
+      if (this.audio && typeof this.audio.playDash === "function") {
+        this.audio.playDash();
+      }
     }
     p.dashCooldown = Math.max(0, p.dashCooldown - dt);
 
@@ -625,6 +676,10 @@ class RactrGame {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Visual pulses
+  // ---------------------------------------------------------------------------
+
   _registerPulse(x, y, color, radius, duration, thickness) {
     if (this.pulses.length > 64) {
       this.pulses.shift();
@@ -650,6 +705,10 @@ class RactrGame {
       return p.life > 0;
     });
   }
+
+  // ---------------------------------------------------------------------------
+  // Collisions & progression
+  // ---------------------------------------------------------------------------
 
   _checkCollisions() {
     const p = this.player;
@@ -689,6 +748,10 @@ class RactrGame {
             3.5
           );
 
+          if (this.audio && typeof this.audio.playHit === "function") {
+            this.audio.playHit();
+          }
+
           if (p.health <= 0) {
             if (this.gameState) {
               this.gameState.state = "gameover";
@@ -697,6 +760,11 @@ class RactrGame {
                 this.gameState.timeAlive || 0
               );
             }
+
+            if (this.audio && typeof this.audio.onRunEnded === "function") {
+              this.audio.onRunEnded();
+            }
+
             this.net.notifyRunEnded({
               player: this.getPlayerStateSnapshot(),
               timeAlive: this.gameState ? this.gameState.timeAlive : 0
@@ -795,12 +863,20 @@ class RactrGame {
         0.6,
         4
       );
+
+      if (this.audio && typeof this.audio.playLevelUp === "function") {
+        this.audio.playLevelUp();
+      }
     }
 
     if (leveledUp) {
       this.net.notifyLevelUp(this.getPlayerStateSnapshot());
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Rendering
+  // ---------------------------------------------------------------------------
 
   render(ctx, width, height) {
     const vCfg = this.config.visuals || {};
