@@ -88,6 +88,11 @@ class RactrGame {
 
     this._attachStartInput();
     this._loadConfig();
+
+    // Small UX hint: let CSS know a game is active for potential cursor styling
+    if (this.engine && this.engine.canvas && this.engine.canvas.classList) {
+      this.engine.canvas.classList.add("ractr-active");
+    }
   }
 
   _loadConfig() {
@@ -501,7 +506,7 @@ class RactrGame {
     // Cache some values for this frame
     const timeNow = this.time;
 
-    // Hazards
+    // Hazards (core fill)
     const hazardColorTemplate = vCfg.hazardColor || "rgba(255, 85, 120, ALPHA)";
     ctx.beginPath();
     for (const hzd of this.hazards) {
@@ -512,6 +517,21 @@ class RactrGame {
       ctx.arc(hzd.x, hzd.y, hzd.radius, 0, Math.PI * 2);
     }
     ctx.fill();
+
+    // Hazard difficulty accent ring for clearer danger feedback
+    if (this.hazards.length) {
+      const dangerFactor = this._difficultyFactor();
+      const accentAlpha = 0.1 + 0.35 * dangerFactor;
+      const accentWidth = 1 + 1.5 * dangerFactor;
+      const accentColor = `rgba(255, 110, 150, ${accentAlpha.toFixed(3)})`;
+      ctx.strokeStyle = accentColor;
+      ctx.lineWidth = accentWidth;
+      for (const hzd of this.hazards) {
+        ctx.beginPath();
+        ctx.arc(hzd.x, hzd.y, hzd.radius + 2, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
 
     // Orbiters around the player
     const p = this.player;
