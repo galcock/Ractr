@@ -1,7 +1,8 @@
 // RactrGame: high-level game orchestrator.
-// This version keeps the existing survival gameplay but now relies on
-// the dedicated state module (ractr_state.js) when available, creating
-// a cleaner separation between engine loop and RPG/MMO-style state.
+// Now integrates with the dedicated state module (ractr_state.js)
+// to separate engine loop from RPG/MMO-style state. Falls back to
+// an inline state implementation if the module is absent so the
+// game remains playable in all environments.
 
 class RactrGame {
   constructor(engine) {
@@ -71,16 +72,14 @@ class RactrGame {
 
     // --- Core game state --------------------------------------------------
 
-    // If a dedicated state module is present, use it. Otherwise, fall back
-    // to the legacy inline layout for robustness.
+    // Prefer dedicated state module when available.
     if (typeof RactrGameState === "function") {
       this.gameState = new RactrGameState(this.config);
     } else {
       this.gameState = this._createLegacyInlineState();
     }
 
-    // Local shortcuts to frequently used state pieces. The authoritative
-    // values live on this.gameState, but these references are convenient.
+    // Local shortcuts. The authoritative values live on this.gameState.
     this.player = this.gameState.player;
     this.hazards = this.gameState.hazards;
 
@@ -468,6 +467,7 @@ class RactrGame {
       this.net.tick(dt, snapshot);
     }
 
+    // If a richer state system is present, allow it to reconcile.
     if (this.gameState && typeof this.gameState.syncFromSnapshot === "function") {
       this.gameState.syncFromSnapshot(snapshot);
       this.player = this.gameState.player;
