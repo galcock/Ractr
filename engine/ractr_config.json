@@ -1,0 +1,26 @@
+{
+  "player": {
+    "maxHealth": 100,
+    "dashCooldown": 0.6,
+    "baseSpeed": 180,
+    "dashSpeed": 360
+  },
+  "hazards": {
+    "baseSpawnInterval": 1.4,
+    "minSpawnInterval": 0.5,
+    "spawnIntervalDecayPerSecond": 0.05,
+    "baseSpeed": 80,
+    "randomSpeed": 140,
+    "damagePerHit": 20,
+    "maxOnScreen": 40
+  },
+  "difficulty": {
+    "speedIncreasePerSecond": 10,
+    "spawnCountIncreaseTimes": [10, 20, 30]
+  },
+  "visuals": {
+    "backgroundGradient": ["#05060a", "#101426"],
+    "hazardColor": "rgba(255, 85, 120, ALPHA)",
+    "playerCoreColor": "#5f9cff"
+  }
+}
