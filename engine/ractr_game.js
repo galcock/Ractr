@@ -428,44 +428,50 @@ class RactrGame {
     ctx.fillStyle = grd;
     ctx.fillRect(0, 0, width, height);
 
-    // Subtle grid (reduced lines for performance)
-    ctx.strokeStyle = "rgba(255,255,255,0.025)";
-    ctx.lineWidth = 1;
-    const gridSize = 56;
-    const xStart = width % gridSize;
-    const yStart = height % gridSize;
-    ctx.beginPath();
-    for (let x = xStart; x < width; x += gridSize) {
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, height);
+    // Subtle grid (skip on very small canvases for perf)
+    if (width > 320 && height > 240) {
+      ctx.strokeStyle = "rgba(255,255,255,0.025)";
+      ctx.lineWidth = 1;
+      const gridSize = 56;
+      const xStart = width % gridSize;
+      const yStart = height % gridSize;
+      ctx.beginPath();
+      for (let x = xStart; x < width; x += gridSize) {
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, height);
+      }
+      for (let y = yStart; y < height; y += gridSize) {
+        ctx.moveTo(0, y);
+        ctx.lineTo(width, y);
+      }
+      ctx.stroke();
     }
-    for (let y = yStart; y < height; y += gridSize) {
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
-    }
-    ctx.stroke();
+
+    // Cache some values for this frame
+    const timeNow = this.time;
 
     // Hazards
     const hazardColorTemplate = vCfg.hazardColor || "rgba(255, 85, 120, ALPHA)";
+    ctx.beginPath();
     for (const hzd of this.hazards) {
-      ctx.beginPath();
-      const alpha = 0.4 + 0.3 * Math.sin(this.time * 5 + hzd.x * 0.02);
+      const alpha = 0.4 + 0.3 * Math.sin(timeNow * 5 + hzd.x * 0.02);
       const color = hazardColorTemplate.replace("ALPHA", alpha.toFixed(3));
       ctx.fillStyle = color;
+      ctx.moveTo(hzd.x + hzd.radius, hzd.y);
       ctx.arc(hzd.x, hzd.y, hzd.radius, 0, Math.PI * 2);
-      ctx.fill();
     }
+    ctx.fill();
 
     // Orbiters around the player
     const p = this.player;
+    ctx.fillStyle = "rgba(156, 200, 255, 0.55)";
     for (const orb of this.orbiters) {
-      const angle = orb.angle + this.time * orb.speed;
+      const angle = orb.angle + timeNow * orb.speed;
       const ox = p.x + Math.cos(angle) * orb.radius;
       const oy = p.y + Math.sin(angle) * orb.radius;
 
       const r = 3 + (orb.radius % 5);
       ctx.beginPath();
-      ctx.fillStyle = "rgba(156, 200, 255, 0.55)";
       ctx.arc(ox, oy, r, 0, Math.PI * 2);
       ctx.fill();
     }
@@ -484,12 +490,10 @@ class RactrGame {
     }
 
     // Player core (blink slightly when invulnerable)
-    const invulnBlink = p.invulnTime > 0 ? (Math.sin(this.time * 40) > 0 ? 1 : 0.4) : 1;
+    const invulnBlink = p.invulnTime > 0 ? (Math.sin(timeNow * 40) > 0 ? 1 : 0.4) : 1;
     ctx.beginPath();
     const coreColor = vCfg.playerCoreColor || "#5f9cff";
-    const coreColorWithAlpha = coreColor.startsWith("#")
-      ? coreColor
-      : coreColor;
+    const coreColorWithAlpha = coreColor.startsWith("#") ? coreColor : coreColor;
     ctx.fillStyle = coreColorWithAlpha;
     ctx.globalAlpha = invulnBlink;
     ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
@@ -497,16 +501,16 @@ class RactrGame {
     ctx.globalAlpha = 1;
 
     // Player inner pulse
-    const pulse = 0.7 + 0.3 * Math.sin(this.time * 8);
+    const innerPulse = 0.7 + 0.3 * Math.sin(timeNow * 8);
     ctx.beginPath();
-    ctx.fillStyle = `rgba(255,255,255,${0.15 + 0.25 * pulse})`;
+    ctx.fillStyle = `rgba(255,255,255,${0.15 + 0.25 * innerPulse})`;
     ctx.arc(p.x, p.y, p.radius * 0.6, 0, Math.PI * 2);
     ctx.fill();
 
     // Player outline with hit/near-miss feedback tint
     let outlineColor = "#c2dcff";
-    const hitAge = this.time - this.lastHitTime;
-    const nearMissAge = this.time - this.lastNearMissTime;
+    const hitAge = timeNow - this.lastHitTime;
+    const nearMissAge = timeNow - this.lastNearMissTime;
     if (hitAge >= 0 && hitAge < 0.25) {
       outlineColor = "#ff5c7a"; // recent damage
     } else if (nearMissAge >= 0 && nearMissAge < 0.25) {
@@ -524,17 +528,9 @@ class RactrGame {
     ctx.fillStyle = "rgba(255,255,255,0.9)";
     ctx.font = "12px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
     ctx.textAlign = "left";
-    ctx.fillText(
-      `Time: ${this.timeAlive.toFixed(2)}s`,
-      12,
-      20
-    );
+    ctx.fillText(`Time: ${this.timeAlive.toFixed(2)}s`, 12, 20);
     ctx.textAlign = "right";
-    ctx.fillText(
-      `Best: ${this.bestTime.toFixed(2)}s`,
-      width - 12,
-      20
-    );
+    ctx.fillText(`Best: ${this.bestTime.toFixed(2)}s`, width - 12, 20);
 
     // Health bar
     const barWidth = Math.min(220, width * 0.3);
@@ -557,7 +553,7 @@ class RactrGame {
 
     // Low-health overlay on bar
     if (healthRatio < 0.35) {
-      const warningPulse = 0.5 + 0.5 * Math.sin(this.time * 6);
+      const warningPulse = 0.5 + 0.5 * Math.sin(timeNow * 6);
       ctx.fillStyle = `rgba(255,0,40,${0.25 * warningPulse})`;
       ctx.fillRect(barX, barY, barWidth * healthRatio, barHeight);
     }
@@ -571,11 +567,7 @@ class RactrGame {
     ctx.textAlign = "center";
     ctx.fillStyle = "rgba(255,255,255,0.85)";
     ctx.font = "11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-    ctx.fillText(
-      `Health: ${Math.ceil(p.health)}/${p.maxHealth}`,
-      barX + barWidth / 2,
-      barY - 3
-    );
+    ctx.fillText(`Health: ${Math.ceil(p.health)}/${p.maxHealth}`, barX + barWidth / 2, barY - 3);
 
     // Subtle low-health vignette overlay and global damage flash
     if (healthRatio < 0.35) {
@@ -584,7 +576,7 @@ class RactrGame {
       ctx.fillRect(0, 0, width, height);
     }
 
-    const recentHitAge = this.time - this.lastHitTime;
+    const recentHitAge = timeNow - this.lastHitTime;
     if (recentHitAge >= 0 && recentHitAge < 0.18) {
       const fade = 1 - recentHitAge / 0.18;
       ctx.fillStyle = `rgba(255,90,120,${0.25 * fade})`;
@@ -606,11 +598,7 @@ class RactrGame {
         height / 2 + 16
       );
       ctx.fillStyle = "rgba(255,255,255,0.7)";
-      ctx.fillText(
-        "Press Space or Enter to start",
-        width / 2,
-        height / 2 + 38
-      );
+      ctx.fillText("Press Space or Enter to start", width / 2, height / 2 + 38);
     } else if (this.state === "gameover") {
       ctx.fillStyle = "rgba(255,120,140,0.95)";
       ctx.font = "24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
@@ -623,11 +611,7 @@ class RactrGame {
         height / 2 + 16
       );
       ctx.fillStyle = "rgba(255,255,255,0.75)";
-      ctx.fillText(
-        "Press Space or Enter to try again",
-        width / 2,
-        height / 2 + 38
-      );
+      ctx.fillText("Press Space or Enter to try again", width / 2, height / 2 + 38);
     }
 
     ctx.restore();
@@ -635,6 +619,6 @@ class RactrGame {
 }
 
 // Ensure RactrGame is globally accessible for index.html
-if (typeof window !== 'undefined') {
+if (typeof window !== "undefined") {
   window.RactrGame = RactrGame;
 }
