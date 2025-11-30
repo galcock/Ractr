@@ -1,549 +1,369 @@
-// RactrGame: high-level game orchestrator and single-player client.
-// Now uses modular subsystems (state, entities, UI, audio, net)
-// while preserving the existing single-player dodge gameplay
-// as the "Training Grounds" zone.
+// RactrGame: Everlight Crossroads – EQ-inspired top-down ARPG zone.
+// - WASD / arrows: move
+// - Space: dash
+// - J: basic attack (projectile) toward nearest enemy
+// - Survive, kill mobs, gain XP & levels.
+
+// -------------------- Entity Types --------------------
+
+class RactrMob {
+  constructor(x, y, opts = {}) {
+    this.x = x;
+    this.y = y;
+    this.vx = 0;
+    this.vy = 0;
+
+    this.radius = opts.radius || 16;
+    this.maxHealth = opts.maxHealth || 40;
+    this.health = this.maxHealth;
+    this.moveSpeed = opts.moveSpeed || 55;
+    this.name = opts.name || "Forest Wisp";
+    this.level = opts.level || 1;
+    this.baseXp = opts.baseXp || 18;
+
+    this.colorBody = opts.colorBody || "#53f5b8";
+    this.colorCore = opts.colorCore || "#f0fff8";
+
+    this.behavior = opts.behavior || "chaser"; // "chaser" | "wander"
+    this.wanderAngle = Math.random() * Math.PI * 2;
+    this.wanderTimer = 0;
+
+    this.aggroRange = opts.aggroRange || 260;
+    this.attackRange = opts.attackRange || 32;
+    this.attackCooldown = 0;
+    this.attackCooldownMax = opts.attackCooldownMax || 1.3;
+    this.contactDamage = opts.contactDamage || 10;
+
+    this.alive = true;
+    this.hitFlash = 0;
+  }
+
+  takeDamage(amount) {
+    this.health -= amount;
+    this.hitFlash = 0.18;
+    if (this.health <= 0) {
+      this.alive = false;
+    }
+  }
+
+  update(dt, player, zoneBounds) {
+    if (!this.alive) return;
+
+    if (this.hitFlash > 0) this.hitFlash = Math.max(0, this.hitFlash - dt);
+    if (this.attackCooldown > 0) this.attackCooldown = Math.max(0, this.attackCooldown - dt);
+
+    const dx = player.x - this.x;
+    const dy = player.y - this.y;
+    const dist = Math.hypot(dx, dy);
+
+    if (this.behavior === "chaser") {
+      if (dist < this.aggroRange) {
+        // Move toward player
+        const s = this.moveSpeed;
+        const mag = dist || 1;
+        this.vx = (dx / mag) * s;
+        this.vy = (dy / mag) * s;
+      } else {
+        // Idle drift
+        this._wander(dt);
+      }
+    } else {
+      this._wander(dt);
+    }
+
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+
+    // Soft clamp to zone
+    if (zoneBounds) {
+      const { minX, maxX, minY, maxY } = zoneBounds;
+      if (this.x < minX + this.radius) this.x = minX + this.radius;
+      if (this.x > maxX - this.radius) this.x = maxX - this.radius;
+      if (this.y < minY + this.radius) this.y = minY + this.radius;
+      if (this.y > maxY - this.radius) this.y = maxY - this.radius;
+    }
+  }
+
+  _wander(dt) {
+    this.wanderTimer -= dt;
+    if (this.wanderTimer <= 0) {
+      this.wanderTimer = 1 + Math.random() * 2.5;
+      this.wanderAngle = Math.random() * Math.PI * 2;
+    }
+    const s = this.moveSpeed * 0.5;
+    this.vx = Math.cos(this.wanderAngle) * s;
+    this.vy = Math.sin(this.wanderAngle) * s;
+  }
+}
+
+class RactrProjectile {
+  constructor(x, y, vx, vy, opts = {}) {
+    this.x = x;
+    this.y = y;
+    this.vx = vx;
+    this.vy = vy;
+    this.radius = opts.radius || 6;
+    this.life = opts.life || 0.6;
+    this.maxLife = this.life;
+    this.damage = opts.damage || 20;
+  }
+
+  update(dt) {
+    this.life -= dt;
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+  }
+
+  get alive() {
+    return this.life > 0;
+  }
+}
+
+// -------------------- RactrGame --------------------
 
 class RactrGame {
   constructor(engine) {
     this.engine = engine;
+    this.canvas = engine.canvas;
+    this.ctx = engine.ctx;
 
-    // Core configuration scaffold: engine-level defaults that can be
-    // overridden via engine/ractr_config.json.
-    this.config = {
-      player: {
-        maxHealth: 100,
-        dashCooldown: 0.6,
-        baseSpeed: 180,
-        dashSpeed: 360,
-        baseMaxMana: 50,
-        baseAttackPower: 10,
-        baseDefense: 2,
-        baseCritChance: 0.05,
-        baseXpPerSecondSurvived: 1,
-        baseStrength: 10,
-        baseAgility: 10,
-        baseIntelligence: 10
-      },
-      hazards: {
-        baseSpawnInterval: 1.4,
-        minSpawnInterval: 0.5,
-        spawnIntervalDecayPerSecond: 0.05,
-        baseSpeed: 80,
-        randomSpeed: 140,
-        damagePerHit: 20,
-        maxOnScreen: 40,
-        xpOnHitTaken: 2
-      },
-      difficulty: {
-        speedIncreasePerSecond: 10,
-        spawnCountIncreaseTimes: [10, 20, 30]
-      },
-      visuals: {
-        backgroundGradient: ["#05060a", "#101426"],
-        hazardColor: "rgba(255, 85, 120, ALPHA)",
-        playerCoreColor: "#5f9cff"
-      },
-      progression: {
-        baseXpToLevel: 100,
-        xpLevelExponent: 1.3,
-        hpPerLevel: 10,
-        manaPerLevel: 5,
-        attackPerLevel: 2,
-        defensePerLevel: 1,
-        strengthPerLevel: 1,
-        agilityPerLevel: 1,
-        intelligencePerLevel: 1
-      },
-      meta: {
-        startingZoneId: "training_grounds",
-        zones: {
-          training_grounds: {
-            name: "Training Grounds",
-            levelRange: [1, 3],
-            description: "Hazard-dodge arena used as the first combat tutorial.",
-            type: "arena"
-          }
-        }
-      },
-      net: {
-        websocketUrl: "",
-        httpBaseUrl: ""
-      }
+    this.time = 0;
+    this.state = "intro"; // intro | playing | dead
+    this.bestTime = 0;
+    this.runTime = 0;
+
+    // World / zone definition
+    this.zone = {
+      id: "everlight_crossroads",
+      name: "Everlight Crossroads",
+      levelRange: [1, 3],
+      description: "A forest edge crossroads where new adventurers take their first steps.",
     };
 
-    // --- Core game state --------------------------------------------------
-
-    // Prefer external RactrGameState if present; otherwise fall back
-    // to a minimal inline structure that mimics its shape closely.
-    if (typeof RactrGameState === "function") {
-      this.gameState = new RactrGameState(this.config);
-    } else {
-      this.gameState = this._createLegacyInlineState();
-    }
-
-    // Entity accessors (always point at gameState containers).
-    this.player = this.gameState.player;
-    this.hazards = this.gameState.hazards;
-
-    // Legacy hazard spawning values.
-    this.spawnTimer = 0;
-    this.spawnInterval = this.config.hazards.baseSpawnInterval;
-
-    // Visual orbiters for player representation.
-    this.orbiters = [];
-    for (let i = 0; i < 24; i++) {
-      this.orbiters.push({
-        angle: (i / 24) * Math.PI * 2,
-        radius: 40 + (i % 5) * 12,
-        speed: 0.6 + (i % 3) * 0.2
-      });
-    }
-
-    this.difficultyDuration = 60;
-
-    // Hit / near-miss feedback.
-    this.lastHitTime = -999;
-    this.lastNearMissTime = -999;
-    this.lastNearMissPulseTime = -999;
-    this.nearMissStreak = 0;
-
-    // Pulse visual effects.
-    this.pulses = [];
-
-    // Cached HUD strings for minor perf wins.
-    this._cachedHealthText = "";
-    this._cachedLevelText = "";
-
-    // Optional networking surface.
-    if (typeof RactrNetClient === "function") {
-      this.net = new RactrNetClient(this.config.net);
-    } else {
-      this.net = {
-        applyConfig: function () {},
-        tick: function () {},
-        notifyRunStarted: function () {},
-        notifyRunEnded: function () {},
-        notifyLevelUp: function () {}
-      };
-    }
-
-    // Optional UI & audio modules (must fail gracefully).
-    this.ui = typeof RactrUI !== "undefined" ? RactrUI : null;
-    this.audio = typeof RactrAudio !== "undefined" ? RactrAudio : null;
-
-    this.isCharacterSheetOpen = false;
-
-    this._attachStartInput();
-    this._attachUiInput();
-    this._loadConfig();
-
-    if (this.engine && this.engine.canvas && this.engine.canvas.classList) {
-      this.engine.canvas.classList.add("ractr-active");
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // State initialization and configuration
-  // ---------------------------------------------------------------------------
-
-  _createLegacyInlineState() {
-    const player = this._createInitialPlayer();
-    return {
-      player,
-      hazards: [],
-      time: 0,
-      timeAlive: 0,
-      bestTime: 0,
-      state: "intro", // intro | playing | gameover
-      applyConfig: null,
-      syncFromSnapshot: null
+    // Zone layout (in canvas space)
+    this.zoneBounds = {
+      padding: 40,
+      get minX() {
+        return this.padding;
+      },
+      get maxX() {
+        return (typeof window !== "undefined"
+          ? (window.innerWidth || 960)
+          : 960) - this.padding;
+      },
+      get minY() {
+        return this.padding + 40;
+      },
+      get maxY() {
+        return (typeof window !== "undefined"
+          ? (window.innerHeight || 540)
+          : 540) - this.padding;
+      },
     };
-  }
 
-  _createInitialPlayer() {
-    return {
-      x: 200,
-      y: 200,
+    // Player core state
+    this.player = {
+      x: 0,
+      y: 0,
       vx: 0,
       vy: 0,
       radius: 16,
-      baseSpeed: this.config.player.baseSpeed,
-      dashSpeed: this.config.player.dashSpeed,
+      baseSpeed: 185,
+      dashSpeed: 360,
       dashCooldown: 0,
-      maxHealth: this.config.player.maxHealth,
-      health: this.config.player.maxHealth,
-      maxMana: this.config.player.baseMaxMana,
-      mana: this.config.player.baseMaxMana,
+      dashCooldownMax: 0.55,
       invulnTime: 0,
-      id: "local-player",
+      maxHealth: 120,
+      health: 120,
+      maxMana: 60,
+      mana: 60,
+      // RPG stats
       name: "Adventurer",
-      classId: "dashblade",
+      classId: "Warden",
       level: 1,
       xp: 0,
-      xpToNext: 100,
-      strength: this.config.player.baseStrength,
-      agility: this.config.player.baseAgility,
-      intelligence: this.config.player.baseIntelligence,
-      attackPower: this.config.player.baseAttackPower,
-      defense: this.config.player.baseDefense,
-      critChance: this.config.player.baseCritChance,
+      xpToNext: 130,
+      strength: 10,
+      agility: 12,
+      intelligence: 9,
+      attackPower: 14,
+      defense: 3,
+      critChance: 0.06,
       gold: 0,
-      inventory: [],
-      zoneId: this.config.meta.startingZoneId,
-      _initializedFromConfig: false,
-      snapshot: function () {
-        return {
-          id: this.id,
-          name: this.name,
-          classId: this.classId,
-          level: this.level,
-          xp: this.xp,
-          xpToNext: this.xpToNext,
-          strength: this.strength,
-          agility: this.agility,
-          intelligence: this.intelligence,
-          maxHealth: this.maxHealth,
-          health: this.health,
-          maxMana: this.maxMana,
-          mana: this.mana,
-          attackPower: this.attackPower,
-          defense: this.defense,
-          critChance: this.critChance,
-          gold: this.gold,
-          inventory: this.inventory.slice(),
-          zoneId: this.zoneId
-        };
-      }
+      facingAngle: 0,
+      attackCooldown: 0,
+      attackCooldownMax: 0.45,
     };
-  }
 
-  getPlayerStateSnapshot() {
-    const p = this.player;
-    if (!p) return null;
-    if (typeof p.snapshot === "function") {
-      return p.snapshot();
-    }
-    return {
-      id: p.id,
-      name: p.name,
-      classId: p.classId,
-      level: p.level,
-      xp: p.xp,
-      xpToNext: p.xpToNext,
-      strength: p.strength,
-      agility: p.agility,
-      intelligence: p.intelligence,
-      maxHealth: p.maxHealth,
-      health: p.health,
-      maxMana: p.maxMana,
-      mana: p.mana,
-      attackPower: p.attackPower,
-      defense: p.defense,
-      critChance: p.critChance,
-      gold: p.gold,
-      inventory: Array.isArray(p.inventory) ? p.inventory.slice() : [],
-      zoneId: p.zoneId
-    };
-  }
+    // Entities
+    this.mobs = [];
+    this.projectiles = [];
 
-  _loadConfig() {
-    try {
-      fetch("engine/ractr_config.json")
-        .then((res) => {
-          if (!res.ok) throw new Error("Failed to load ractr_config.json");
-          return res.json();
-        })
-        .then((cfg) => {
-          if (cfg.player) {
-            this.config.player = Object.assign({}, this.config.player, cfg.player);
-          }
-          if (cfg.hazards) {
-            this.config.hazards = Object.assign({}, this.config.hazards, cfg.hazards);
-          }
-          if (cfg.difficulty) {
-            this.config.difficulty = Object.assign({}, this.config.difficulty, cfg.difficulty);
-          }
-          if (cfg.visuals) {
-            this.config.visuals = Object.assign({}, this.config.visuals, cfg.visuals);
-          }
-          if (cfg.progression) {
-            this.config.progression = Object.assign({}, this.config.progression, cfg.progression);
-          }
-          if (cfg.meta) {
-            this.config.meta = Object.assign({}, this.config.meta, cfg.meta);
-          }
-          if (cfg.net) {
-            this.config.net = Object.assign({}, this.config.net, cfg.net);
-            if (this.net && typeof this.net.applyConfig === "function") {
-              this.net.applyConfig(this.config.net);
-            }
-          }
+    // Visual helpers
+    this.pulses = [];
+    this.lastHitTime = -999;
+    this.lastKillTime = -999;
 
-          if (this.gameState && typeof this.gameState.applyConfig === "function") {
-            this.gameState.applyConfig(this.config);
-            this.player = this.gameState.player;
-            this.hazards = this.gameState.hazards;
-          }
+    // Cached HUD text
+    this.cachedHealthText = "";
+    this.cachedRpgLine = "";
 
-          this._applyConfigToPlayer();
-          this.spawnInterval = this.config.hazards.baseSpawnInterval;
-        })
-        .catch(() => {
-          this._applyConfigToPlayer();
-        });
-    } catch (e) {
-      this._applyConfigToPlayer();
+    // Input helpers
+    this.pendingAttack = false;
+    this.isCharSheetHintShown = false;
+
+    this._attachCoreInput();
+    this._attachAttackInput();
+
+    // Initial spawn & positioning
+    this._resetRunState();
+
+    if (this.canvas && this.canvas.classList) {
+      this.canvas.classList.add("ractr-active");
     }
   }
 
-  _applyConfigToPlayer() {
-    const pCfg = this.config.player;
-    const progCfg = this.config.progression;
-    const p = this.player;
+  // -------------------- Input hooks --------------------
 
-    if (!p) return;
-
-    p.baseSpeed = pCfg.baseSpeed;
-    p.dashSpeed = pCfg.dashSpeed;
-
-    if (!p._initializedFromConfig) {
-      // First-time initialization from config: treat player as fresh character.
-      p.level = p.level || 1;
-      p.xp = p.xp || 0;
-
-      p.strength = pCfg.baseStrength;
-      p.agility = pCfg.baseAgility;
-      p.intelligence = pCfg.baseIntelligence;
-
-      p.maxHealth = pCfg.maxHealth + Math.round(p.strength * 1.5);
-      p.maxMana = pCfg.baseMaxMana + Math.round(p.intelligence * 1.2);
-      p.attackPower =
-        pCfg.baseAttackPower +
-        Math.round(p.strength * 0.6) +
-        Math.round(p.agility * 0.2);
-      p.defense = pCfg.baseDefense + Math.round(p.strength * 0.3);
-      p.critChance = pCfg.baseCritChance + p.agility * 0.001;
-
-      p.health = p.maxHealth;
-      p.mana = p.maxMana;
-      p.xpToNext = this._computeXpForLevel(p.level + 1, progCfg);
-      p.zoneId = this.config.meta.startingZoneId;
-
-      p._initializedFromConfig = true;
-    } else {
-      // Existing character (e.g., from persistent storage or network):
-      // recompute derived stats, preserving level/xp.
-      const levelBonus = p.level - 1;
-      const strengthBonus = (progCfg.strengthPerLevel || 0) * levelBonus;
-      const agilityBonus = (progCfg.agilityPerLevel || 0) * levelBonus;
-      const intBonus = (progCfg.intelligencePerLevel || 0) * levelBonus;
-
-      p.strength = pCfg.baseStrength + strengthBonus;
-      p.agility = pCfg.baseAgility + agilityBonus;
-      p.intelligence = pCfg.baseIntelligence + intBonus;
-
-      p.maxHealth =
-        pCfg.maxHealth +
-        Math.round(p.strength * 1.5) +
-        levelBonus * (progCfg.hpPerLevel || 0);
-      p.maxMana =
-        pCfg.baseMaxMana +
-        Math.round(p.intelligence * 1.2) +
-        levelBonus * (progCfg.manaPerLevel || 0);
-      p.attackPower =
-        pCfg.baseAttackPower +
-        Math.round(p.strength * 0.6) +
-        Math.round(p.agility * 0.2) +
-        levelBonus * (progCfg.attackPerLevel || 0);
-      p.defense =
-        pCfg.baseDefense +
-        Math.round(p.strength * 0.3) +
-        levelBonus * (progCfg.defensePerLevel || 0);
-      p.critChance = pCfg.baseCritChance + p.agility * 0.001;
-
-      const state = this.gameState && this.gameState.state ? this.gameState.state : "intro";
-      if (state !== "playing") {
-        p.health = p.maxHealth;
-        p.mana = p.maxMana;
-      } else {
-        if (p.health > p.maxHealth) p.health = p.maxHealth;
-        if (p.mana > p.maxMana) p.mana = p.maxMana;
-      }
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Input wiring
-  // ---------------------------------------------------------------------------
-
-  _attachStartInput() {
+  _attachCoreInput() {
     window.addEventListener("keydown", (e) => {
       if (e.repeat) return;
       if (e.key === " " || e.key === "Enter") {
-        const state = this.gameState && this.gameState.state ? this.gameState.state : "intro";
-        if (state === "intro" || state === "gameover") {
-          this._startGame();
+        if (this.state === "intro" || this.state === "dead") {
+          this._startRun();
         }
       }
     });
   }
 
-  _attachUiInput() {
+  _attachAttackInput() {
     window.addEventListener("keydown", (e) => {
       if (e.repeat) return;
       const key = e.key.toLowerCase();
-      if (key === "i") {
-        this.isCharacterSheetOpen = !this.isCharacterSheetOpen;
-        if (this.ui && typeof this.ui.setPanelVisible === "function") {
-          this.ui.setPanelVisible("character", this.isCharacterSheetOpen, this.getPlayerStateSnapshot());
-        }
+      if (key === "j") {
+        this.pendingAttack = true;
       }
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // Game lifecycle
-  // ---------------------------------------------------------------------------
+  // -------------------- Run lifecycle --------------------
 
-  _startGame() {
-    // Start a new run with the current character stats.
-    this._applyConfigToPlayer();
+  _resetRunState() {
+    const bounds = this.zoneBounds;
+    const centerX = (bounds.minX + bounds.maxX) / 2;
+    const centerY = (bounds.minY + bounds.maxY) / 2 + 30;
 
-    const canvas = this.engine.canvas;
-    const w = canvas.clientWidth || 800;
-    const h = canvas.clientHeight || 600;
+    this.player.x = centerX;
+    this.player.y = centerY;
+    this.player.vx = 0;
+    this.player.vy = 0;
+    this.player.health = this.player.maxHealth;
+    this.player.mana = this.player.maxMana;
+    this.player.invulnTime = 0;
+    this.player.dashCooldown = 0;
+    this.player.attackCooldown = 0;
 
-    const p = this.player;
-    p.x = w / 2;
-    p.y = h / 2;
-    p.vx = 0;
-    p.vy = 0;
-    p.dashCooldown = 0;
-    p.health = p.maxHealth;
-    p.mana = p.maxMana;
-    p.invulnTime = 0;
+    this.mobs = [];
+    this.projectiles = [];
+    this.pulses = [];
 
-    this.hazards.length = 0;
-    this.spawnTimer = 0.4;
-    this.spawnInterval = this.config.hazards.baseSpawnInterval;
-
-    if (this.gameState) {
-      this.gameState.timeAlive = 0;
-      this.gameState.state = "playing";
-      if (Array.isArray(this.gameState.hazards)) {
-        this.hazards = this.gameState.hazards;
-      } else {
-        this.gameState.hazards = this.hazards;
-      }
-    }
-
-    this.nearMissStreak = 0;
-
-    this.pulses.length = 0;
+    this.runTime = 0;
+    this.time = 0;
     this.lastHitTime = -999;
-    this.lastNearMissTime = -999;
-    this.lastNearMissPulseTime = -999;
+    this.lastKillTime = -999;
+    this.pendingAttack = false;
 
-    if (this.audio && typeof this.audio.onRunStarted === "function") {
-      this.audio.onRunStarted();
+    // Spawn an initial pack of mobs
+    this._spawnInitialMobs();
+  }
+
+  _spawnInitialMobs() {
+    const bounds = this._getStaticZoneRect();
+    const mobDefs = [
+      { name: "Everlight Wisp", colorBody: "#53f5b8", level: 1 },
+      { name: "Stone Scarab", colorBody: "#f5d253", level: 2 },
+      { name: "Rooted Shade", colorBody: "#b28cff", level: 2 },
+    ];
+
+    for (let i = 0; i < 9; i++) {
+      const def = mobDefs[i % mobDefs.length];
+
+      const x = bounds.minX + 80 + Math.random() * (bounds.width - 160);
+      const y = bounds.minY + 80 + Math.random() * (bounds.height - 160);
+
+      const levelJitter = (Math.random() < 0.35) ? 1 : 0;
+      const level = def.level + levelJitter;
+
+      const maxHp = 30 + level * 18 + Math.floor(Math.random() * 12);
+      const moveSpeed = 50 + level * 12;
+
+      const mob = new RactrMob(x, y, {
+        radius: 16 + Math.random() * 4,
+        maxHealth: maxHp,
+        moveSpeed,
+        name: def.name,
+        level,
+        baseXp: 16 + level * 8,
+        colorBody: def.colorBody,
+        colorCore: "#f0fff8",
+        behavior: "chaser",
+        aggroRange: 260 + level * 20,
+        contactDamage: 12 + level * 4,
+      });
+
+      this.mobs.push(mob);
     }
-
-    this.net.notifyRunStarted(this.getPlayerStateSnapshot());
   }
 
-  _difficultyFactor() {
-    const timeAlive = this.gameState ? this.gameState.timeAlive : 0;
-    const t = Math.max(0, Math.min(this.difficultyDuration, timeAlive));
-    return t / this.difficultyDuration;
+  _startRun() {
+    this.state = "playing";
+    this._resetRunState();
   }
 
-  // ---------------------------------------------------------------------------
-  // Update loop
-  // ---------------------------------------------------------------------------
+  _endRun() {
+    this.state = "dead";
+    this.bestTime = Math.max(this.bestTime, this.runTime);
+  }
+
+  // -------------------- Update loop --------------------
 
   update(dt, input) {
-    if (!this.gameState) return;
+    this.time += dt;
 
-    this.gameState.time += dt;
-    const timeAliveBefore = this.gameState.timeAlive;
-
-    this._updatePulses(dt);
-
-    const state = this.gameState.state;
-    if (state !== "playing") {
-      if (this.ui && typeof this.ui.update === "function") {
-        this.ui.update(dt, { state: this.gameState, player: this.player });
-      }
-      if (this.audio && typeof this.audio.update === "function") {
-        this.audio.update(dt, { state: this.gameState, player: this.player });
-      }
+    if (this.state === "intro") {
+      this._updatePulses(dt);
       return;
     }
 
-    this.gameState.timeAlive = timeAliveBefore + dt;
+    if (this.state === "dead") {
+      this._updatePulses(dt);
+      return;
+    }
 
-    // Update difficulty and spawn interval.
-    const hCfg = this.config.hazards;
-    const factor = this._difficultyFactor();
-    const baseInterval = hCfg.baseSpawnInterval;
-    const targetInterval = hCfg.minSpawnInterval;
-    const eased = factor * factor * (3 - 2 * factor);
-    this.spawnInterval = baseInterval + (targetInterval - baseInterval) * eased;
+    this.runTime += dt;
 
-    // Update core gameplay.
+    this._updatePulses(dt);
     this._updatePlayer(dt, input);
-    this._updateHazards(dt);
-    this._checkCollisions();
-    this._updatePlayerProgression(dt);
-
-    // Construct a lightweight snapshot for potential networking/state sync.
-    const snapshot = {
-      player: this.getPlayerStateSnapshot(),
-      timeAlive: this.gameState.timeAlive,
-      zoneId: this.player.zoneId
-    };
-
-    // Networking tick is a no-op unless a real client is present.
-    if (this.net && typeof this.net.tick === "function") {
-      this.net.tick(dt, snapshot);
-    }
-
-    // Allow external state managers to consume/sync snapshot.
-    if (this.gameState && typeof this.gameState.syncFromSnapshot === "function") {
-      this.gameState.syncFromSnapshot(snapshot);
-      this.player = this.gameState.player;
-      this.hazards = this.gameState.hazards;
-    }
-
-    if (this.ui && typeof this.ui.update === "function") {
-      this.ui.update(dt, { state: this.gameState, player: this.player });
-    }
-
-    if (this.audio && typeof this.audio.update === "function") {
-      this.audio.update(dt, { state: this.gameState, player: this.player });
-    }
+    this._updateMobs(dt);
+    this._updateProjectiles(dt);
+    this._handleCollisions();
+    this._maybeSpawnExtraMobs(dt);
   }
 
   _updatePlayer(dt, input) {
     const p = this.player;
-    const pCfg = this.config.player;
-
-    if (!p) return;
 
     if (p.invulnTime > 0) {
       p.invulnTime = Math.max(0, p.invulnTime - dt);
     }
-
-    let speed = p.baseSpeed;
-    if (input.dash && p.dashCooldown <= 0) {
-      speed = p.dashSpeed;
-      p.dashCooldown = pCfg.dashCooldown;
-      if (this.audio && typeof this.audio.playDash === "function") {
-        this.audio.playDash();
-      }
+    if (p.dashCooldown > 0) {
+      p.dashCooldown = Math.max(0, p.dashCooldown - dt);
     }
-    p.dashCooldown = Math.max(0, p.dashCooldown - dt);
+    if (p.attackCooldown > 0) {
+      p.attackCooldown = Math.max(0, p.attackCooldown - dt);
+    }
 
+    // Movement
     let moveX = 0;
     let moveY = 0;
     if (input.left) moveX -= 1;
@@ -555,147 +375,275 @@ class RactrGame {
     moveX /= mag;
     moveY /= mag;
 
+    let speed = p.baseSpeed;
+    if (input.dash && p.dashCooldown <= 0) {
+      speed = p.dashSpeed;
+      p.dashCooldown = p.dashCooldownMax;
+      // Dash pulse
+      this._registerPulse(p.x, p.y, "rgba(150, 230, 255, 0.9)", p.radius + 34, 0.4, 4);
+    }
+
     p.vx = moveX * speed;
     p.vy = moveY * speed;
-
     p.x += p.vx * dt;
     p.y += p.vy * dt;
 
-    const canvas = this.engine.canvas;
-    const w = canvas.clientWidth || 800;
-    const h = canvas.clientHeight || 600;
-    p.x = Math.min(Math.max(p.radius + 8, p.x), w - p.radius - 8);
-    p.y = Math.min(Math.max(p.radius + 8, p.y), h - p.radius - 8);
+    if (moveX !== 0 || moveY !== 0) {
+      p.facingAngle = Math.atan2(moveY, moveX);
+    }
+
+    // Clamp to zone bounds
+    const rect = this._getStaticZoneRect();
+    if (p.x < rect.minX + p.radius) p.x = rect.minX + p.radius;
+    if (p.x > rect.maxX - p.radius) p.x = rect.maxX - p.radius;
+    if (p.y < rect.minY + p.radius) p.y = rect.minY + p.radius;
+    if (p.y > rect.maxY - p.radius) p.y = rect.maxY - p.radius;
+
+    // Attack
+    if (this.pendingAttack && p.attackCooldown <= 0) {
+      this._performAttack();
+      p.attackCooldown = p.attackCooldownMax;
+    }
+    this.pendingAttack = false;
   }
 
-  _currentHazardSpeed() {
-    const hCfg = this.config.hazards;
-    const dCfg = this.config.difficulty;
-    const factor = this._difficultyFactor();
+  _performAttack() {
+    const p = this.player;
+    const speed = 520;
+    const projectileLife = 0.6;
+    const baseDamage = p.attackPower + Math.round(p.strength * 0.4 + p.agility * 0.2);
 
-    const speedMultiplier = 1 + 0.6 * factor;
-    const base = hCfg.baseSpeed * speedMultiplier;
-    const linearScale = 0.15;
-    const timeAlive = this.gameState ? this.gameState.timeAlive : 0;
-    const linearIncrease =
-      (dCfg.speedIncreasePerSecond || 0) * linearScale * timeAlive;
-
-    return base + linearIncrease;
-  }
-
-  _spawnHazard() {
-    const canvas = this.engine.canvas;
-    const w = canvas.clientWidth || 800;
-    const h = canvas.clientHeight || 600;
-
-    const hCfg = this.config.hazards;
-    const dCfg = this.config.difficulty;
-
-    let spawnCount = 1;
-    const times = dCfg.spawnCountIncreaseTimes || [];
-    const timeAlive = this.gameState ? this.gameState.timeAlive : 0;
-    for (let i = 0; i < times.length; i++) {
-      if (timeAlive >= times[i]) {
-        spawnCount++;
+    // Aim at nearest mob
+    let target = null;
+    let bestDist = Infinity;
+    for (const mob of this.mobs) {
+      if (!mob.alive) continue;
+      const dx = mob.x - p.x;
+      const dy = mob.y - p.y;
+      const d = Math.hypot(dx, dy);
+      if (d < bestDist) {
+        bestDist = d;
+        target = mob;
       }
     }
 
-    const maxOnScreen = hCfg.maxOnScreen || 40;
-    const availableSlots = Math.max(0, maxOnScreen - this.hazards.length);
-    if (availableSlots <= 0) {
-      return;
+    let dirX, dirY;
+    if (target && bestDist > 1) {
+      dirX = (target.x - p.x) / bestDist;
+      dirY = (target.y - p.y) / bestDist;
+    } else {
+      dirX = Math.cos(p.facingAngle || 0);
+      dirY = Math.sin(p.facingAngle || 0);
     }
 
-    spawnCount = Math.min(spawnCount, availableSlots);
+    const proj = new RactrProjectile(
+      p.x + dirX * (p.radius + 4),
+      p.y + dirY * (p.radius + 4),
+      dirX * speed,
+      dirY * speed,
+      { damage: baseDamage, radius: 7, life: projectileLife }
+    );
 
-    for (let i = 0; i < spawnCount; i++) {
-      const edge = Math.floor(Math.random() * 4);
-      const baseSpeed = this._currentHazardSpeed();
-      const randomBonus = Math.random() * hCfg.randomSpeed;
-      const speed = baseSpeed + randomBonus;
-      let x;
-      let y;
-      let vx;
-      let vy;
-      const drift = 40;
+    this.projectiles.push(proj);
 
-      if (edge === 0) {
-        x = Math.random() * w;
-        y = -20;
-        vx = (Math.random() - 0.5) * drift;
-        vy = speed;
-      } else if (edge === 1) {
-        x = w + 20;
-        y = Math.random() * h;
-        vx = -speed;
-        vy = (Math.random() - 0.5) * drift;
-      } else if (edge === 2) {
-        x = Math.random() * w;
-        y = h + 20;
-        vx = (Math.random() - 0.5) * drift;
-        vy = -speed;
-      } else {
-        x = -20;
-        y = Math.random() * h;
-        vx = speed;
-        vy = (Math.random() - 0.5) * drift;
-      }
-
-      const sizeFactor = 0.5 + 0.5 * this._difficultyFactor();
-      const baseRadius = 8 + Math.random() * 8;
-      const radius = baseRadius * (0.6 + 0.8 * sizeFactor);
-
-      this.hazards.push({
-        x,
-        y,
-        vx,
-        vy,
-        radius,
-        radiusSq: radius * radius
-      });
-    }
+    this._registerPulse(
+      p.x + dirX * (p.radius + 6),
+      p.y + dirY * (p.radius + 6),
+      "rgba(255, 255, 200, 0.9)",
+      p.radius + 20,
+      0.2,
+      2.5
+    );
   }
 
-  _updateHazards(dt) {
-    this.spawnTimer -= dt;
-    if (this.spawnTimer <= 0) {
-      this._spawnHazard();
-      this.spawnTimer = this.spawnInterval;
+  _updateMobs(dt) {
+    const p = this.player;
+    const rect = this._getStaticZoneRect();
+
+    for (const mob of this.mobs) {
+      mob.update(dt, p, rect);
     }
 
-    const canvas = this.engine.canvas;
-    const w = canvas.clientWidth || 800;
-    const h = canvas.clientHeight || 600;
+    // Cull dead mobs (keep a short delay for feel if you want; for now, immediate)
+    this.mobs = this.mobs.filter((m) => m.alive || m.health > 0);
+  }
 
-    const margin = 80;
-    const minX = -margin;
-    const maxX = w + margin;
-    const minY = -margin;
-    const maxY = h + margin;
-
-    this.hazards = this.hazards.filter((hzd) => {
-      hzd.x += hzd.vx * dt;
-      hzd.y += hzd.vy * dt;
-
-      if (hzd.x < minX || hzd.x > maxX || hzd.y < minY || hzd.y > maxY) {
+  _updateProjectiles(dt) {
+    for (const proj of this.projectiles) {
+      proj.update(dt);
+    }
+    const rect = this._getStaticZoneRect();
+    this.projectiles = this.projectiles.filter((proj) => {
+      if (!proj.alive) return false;
+      if (
+        proj.x < rect.minX - 40 ||
+        proj.x > rect.maxX + 40 ||
+        proj.y < rect.minY - 40 ||
+        proj.y > rect.maxY + 40
+      ) {
         return false;
       }
       return true;
     });
+  }
 
-    if (this.gameState) {
-      this.gameState.hazards = this.hazards;
+  _handleCollisions() {
+    const p = this.player;
+
+    if (p.health <= 0) return;
+
+    // Mob -> player contact
+    for (const mob of this.mobs) {
+      if (!mob.alive) continue;
+      const dx = mob.x - p.x;
+      const dy = mob.y - p.y;
+      const dist = Math.hypot(dx, dy);
+      const r = mob.radius + p.radius * 0.8;
+
+      if (dist <= r) {
+        if (p.invulnTime <= 0) {
+          const damage = mob.contactDamage || 10;
+          this._dealDamageToPlayer(damage);
+          p.invulnTime = 0.7;
+          this.lastHitTime = this.time;
+        }
+      }
+    }
+
+    // Projectile -> mob
+    for (const proj of this.projectiles) {
+      if (!proj.alive) continue;
+      for (const mob of this.mobs) {
+        if (!mob.alive) continue;
+        const dx = mob.x - proj.x;
+        const dy = mob.y - proj.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist <= mob.radius + proj.radius) {
+          mob.takeDamage(proj.damage);
+          proj.life = 0;
+
+          if (!mob.alive) {
+            this._onMobKilled(mob);
+          }
+          break;
+        }
+      }
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Visual pulses
-  // ---------------------------------------------------------------------------
+  _dealDamageToPlayer(amount) {
+    const p = this.player;
+    const mitigated = Math.max(0, amount - p.defense * 0.5);
+    const final = Math.max(1, Math.round(mitigated));
+
+    p.health = Math.max(0, p.health - final);
+    this._registerPulse(p.x, p.y, "rgba(255, 60, 90, 0.9)", p.radius + 38, 0.45, 4);
+    this.lastHitTime = this.time;
+
+    if (p.health <= 0) {
+      this._endRun();
+    }
+  }
+
+  _onMobKilled(mob) {
+    this.lastKillTime = this.time;
+
+    const baseXp = mob.baseXp || 16;
+    const xp = baseXp + Math.round(Math.random() * 6);
+    this._grantXp(xp);
+
+    this._registerPulse(
+      mob.x,
+      mob.y,
+      "rgba(170, 255, 210, 0.9)",
+      mob.radius + 40,
+      0.55,
+      3.5
+    );
+
+    this.player.gold += 1 + Math.round(Math.random() * 3);
+  }
+
+  _grantXp(amount) {
+    const p = this.player;
+    p.xp += amount;
+
+    while (p.xp >= p.xpToNext) {
+      p.xp -= p.xpToNext;
+      p.level += 1;
+
+      const hpGain = 14;
+      const manaGain = 6;
+      const strGain = 2;
+      const agiGain = 2;
+      const intGain = 1;
+
+      p.strength += strGain;
+      p.agility += agiGain;
+      p.intelligence += intGain;
+      p.maxHealth += hpGain + Math.round(strGain * 1.3);
+      p.maxMana += manaGain + Math.round(intGain * 1.1);
+      p.attackPower += 3 + Math.round(strGain * 0.7);
+      p.defense += 1 + Math.round(strGain * 0.3);
+      p.critChance += agiGain * 0.003;
+
+      p.health = p.maxHealth;
+      p.mana = p.maxMana;
+
+      // Exponential-ish XP curve
+      const base = 130;
+      const exp = 1.28;
+      p.xpToNext = Math.floor(base * Math.pow(p.level, exp)) + 60;
+
+      this._registerPulse(
+        p.x,
+        p.y,
+        "rgba(120, 220, 255, 0.95)",
+        p.radius + 60,
+        0.7,
+        5
+      );
+    }
+  }
+
+  _maybeSpawnExtraMobs(dt) {
+    // Over time, slowly add more mobs up to a cap, based on how long you've survived.
+    const maxBase = 9;
+    const extra = Math.floor(this.runTime / 20); // +1 mob every 20 seconds
+    const maxMobs = Math.min(20, maxBase + extra);
+
+    if (this.mobs.length >= maxMobs) return;
+    if (Math.random() > 0.015) return; // rare-ish chance per frame
+
+    const rect = this._getStaticZoneRect();
+    const x = rect.minX + 60 + Math.random() * (rect.width - 120);
+    const y = rect.minY + 60 + Math.random() * (rect.height - 120);
+
+    const level = 1 + Math.floor(this.runTime / 45);
+    const maxHp = 40 + level * 20;
+    const moveSpeed = 60 + level * 10;
+
+    const mob = new RactrMob(x, y, {
+      radius: 16,
+      maxHealth: maxHp,
+      moveSpeed,
+      name: level >= 3 ? "Crossroads Lurker" : "Everlight Wisp",
+      level,
+      baseXp: 20 + level * 10,
+      colorBody: level >= 3 ? "#ff6b81" : "#53f5b8",
+      colorCore: "#ffffff",
+      behavior: "chaser",
+      aggroRange: 280 + level * 30,
+      contactDamage: 12 + level * 5,
+    });
+
+    this.mobs.push(mob);
+  }
+
+  // -------------------- Visual helpers --------------------
 
   _registerPulse(x, y, color, radius, duration, thickness) {
-    if (this.pulses.length > 64) {
-      this.pulses.shift();
-    }
+    if (this.pulses.length > 64) this.pulses.shift();
     this.pulses.push({
       x,
       y,
@@ -704,7 +652,7 @@ class RactrGame {
       color,
       life: duration,
       maxLife: duration,
-      thickness: thickness || 2
+      thickness: thickness || 2,
     });
   }
 
@@ -718,423 +666,339 @@ class RactrGame {
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // Collisions & progression
-  // ---------------------------------------------------------------------------
+  _getStaticZoneRect() {
+    const c = this.canvas;
+    const pad = 60;
+    const width = c.clientWidth || c.width || 960;
+    const height = c.clientHeight || c.height || 540;
 
-  _checkCollisions() {
-    const p = this.player;
-    const pr = p.radius;
+    const minX = pad;
+    const maxX = width - pad;
+    const minY = pad + 40;
+    const maxY = height - pad;
 
-    if (p.health <= 0) return;
-
-    const hCfg = this.config.hazards;
-    const damage = hCfg.damagePerHit;
-
-    const nearMissPadding = 14;
-    const nearMissPulseCooldown = 0.09;
-
-    let hadHit = false;
-    let registeredNearMiss = false;
-
-    for (const hzd of this.hazards) {
-      const dx = hzd.x - p.x;
-      const dy = hzd.y - p.y;
-      const distSq = dx * dx + dy * dy;
-      const r = hzd.radius + pr;
-      const hitRadiusSq = r * r;
-
-      if (distSq <= hitRadiusSq) {
-        if (p.invulnTime <= 0) {
-          p.health = Math.max(0, p.health - damage);
-          p.invulnTime = 0.45;
-          this.lastHitTime = this.gameState ? this.gameState.time : 0;
-          hadHit = true;
-
-          this._registerPulse(
-            p.x,
-            p.y,
-            "rgba(255, 90, 120, 0.9)",
-            pr + 32,
-            0.32,
-            3.5
-          );
-
-          if (this.audio && typeof this.audio.playHit === "function") {
-            this.audio.playHit();
-          }
-
-          if (p.health <= 0) {
-            if (this.gameState) {
-              this.gameState.state = "gameover";
-              this.gameState.bestTime = Math.max(
-                this.gameState.bestTime || 0,
-                this.gameState.timeAlive || 0
-              );
-            }
-
-            if (this.audio && typeof this.audio.onRunEnded === "function") {
-              this.audio.onRunEnded();
-            }
-
-            this.net.notifyRunEnded({
-              player: this.getPlayerStateSnapshot(),
-              timeAlive: this.gameState ? this.gameState.timeAlive : 0
-            });
-          }
-        }
-      } else {
-        const nearR = r + nearMissPadding;
-        if (distSq <= nearR * nearR) {
-          registeredNearMiss = true;
-          const now = this.gameState ? this.gameState.time : 0;
-          this.lastNearMissTime = now;
-          if (now - this.lastNearMissPulseTime > nearMissPulseCooldown) {
-            this.lastNearMissPulseTime = now;
-            this._registerPulse(
-              p.x,
-              p.y,
-              "rgba(245, 215, 110, 0.8)",
-              pr + 20,
-              0.24,
-              2.4
-            );
-          }
-        }
-      }
-    }
-
-    if (hadHit) {
-      this.nearMissStreak = 0;
-      const xpOnHit = hCfg.xpOnHitTaken || 0;
-      if (xpOnHit > 0) {
-        this._grantXp(xpOnHit);
-      }
-    } else if (registeredNearMiss) {
-      this.nearMissStreak = Math.min(this.nearMissStreak + 1, 99);
-    }
+    return {
+      minX,
+      maxX,
+      minY,
+      maxY,
+      width: maxX - minX,
+      height: maxY - minY,
+    };
   }
 
-  _updatePlayerProgression(dt) {
-    const pCfg = this.config.player;
-    const xpRate = pCfg.baseXpPerSecondSurvived || 0;
-    if (xpRate > 0) {
-      this._grantXp(xpRate * dt);
-    }
-  }
-
-  _computeXpForLevel(level, progCfg) {
-    const base = (progCfg && progCfg.baseXpToLevel) || 100;
-    const exp = (progCfg && progCfg.xpLevelExponent) || 1.3;
-    const clampedLevel = Math.max(1, level);
-    return Math.floor(base * Math.pow(clampedLevel - 1, exp)) + base;
-  }
-
-  _grantXp(amount) {
-    if (amount <= 0) return;
-    const p = this.player;
-    const progCfg = this.config.progression;
-
-    p.xp += amount;
-    let leveledUp = false;
-
-    while (p.xp >= p.xpToNext) {
-      p.xp -= p.xpToNext;
-      p.level += 1;
-      leveledUp = true;
-
-      const strGain = progCfg.strengthPerLevel || 0;
-      const agiGain = progCfg.agilityPerLevel || 0;
-      const intGain = progCfg.intelligencePerLevel || 0;
-      p.strength += strGain;
-      p.agility += agiGain;
-      p.intelligence += intGain;
-
-      const hpGain = progCfg.hpPerLevel || 0;
-      const manaGain = progCfg.manaPerLevel || 0;
-      const atkGain = progCfg.attackPerLevel || 0;
-      const defGain = progCfg.defensePerLevel || 0;
-
-      p.maxHealth += hpGain + Math.round(strGain * 1.5);
-      p.maxMana += manaGain + Math.round(intGain * 1.2);
-      p.attackPower +=
-        atkGain + Math.round(strGain * 0.6) + Math.round(agiGain * 0.2);
-      p.defense += defGain + Math.round(strGain * 0.3);
-      p.critChance += agiGain * 0.001;
-
-      p.health = Math.min(p.maxHealth, p.health + Math.max(5, hpGain));
-      p.mana = Math.min(p.maxMana, p.mana + Math.max(3, manaGain));
-
-      p.xpToNext = this._computeXpForLevel(p.level + 1, progCfg);
-
-      this._registerPulse(
-        p.x,
-        p.y,
-        "rgba(120, 230, 255, 0.9)",
-        p.radius + 40,
-        0.6,
-        4
-      );
-
-      if (this.audio && typeof this.audio.playLevelUp === "function") {
-        this.audio.playLevelUp();
-      }
-    }
-
-    if (leveledUp) {
-      this.net.notifyLevelUp(this.getPlayerStateSnapshot());
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Rendering
-  // ---------------------------------------------------------------------------
+  // -------------------- Rendering --------------------
 
   render(ctx, width, height) {
-    const vCfg = this.config.visuals || {};
-    const bg0 =
-      (vCfg.backgroundGradient && vCfg.backgroundGradient[0]) || "#05060a";
-    const bg1 =
-      (vCfg.backgroundGradient && vCfg.backgroundGradient[1]) || "#101426";
-
-    const grd = ctx.createLinearGradient(0, 0, width, height);
-    grd.addColorStop(0, bg0);
-    grd.addColorStop(1, bg1);
-    ctx.fillStyle = grd;
+    // Background sky gradient
+    const sky = ctx.createLinearGradient(0, 0, 0, height);
+    sky.addColorStop(0, "#040615");
+    sky.addColorStop(0.35, "#151b33");
+    sky.addColorStop(1, "#090d18");
+    ctx.fillStyle = sky;
     ctx.fillRect(0, 0, width, height);
 
-    if (width > 320 && height > 240) {
-      ctx.strokeStyle = "rgba(255,255,255,0.025)";
-      ctx.lineWidth = 1;
-      const gridSize = 56;
-      const xStart = width % gridSize;
-      const yStart = height % gridSize;
-      ctx.beginPath();
-      for (let x = xStart; x < width; x += gridSize) {
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, height);
-      }
-      for (let y = yStart; y < height; y += gridSize) {
-        ctx.moveTo(0, y);
-        ctx.lineTo(width, y);
-      }
-      ctx.stroke();
+    const rect = this._getStaticZoneRect();
+
+    // Ground tiles
+    this._renderGround(ctx, rect);
+
+    // Paths and stone circle
+    this._renderRoads(ctx, rect);
+
+    // Mobs, player, projectiles
+    for (const mob of this.mobs) {
+      this._renderMob(ctx, mob);
     }
 
-    const timeNow = this.gameState ? this.gameState.time : 0;
-    const hazardColorTemplate =
-      vCfg.hazardColor || "rgba(255, 85, 120, ALPHA)";
-    ctx.beginPath();
-    for (const hzd of this.hazards) {
-      const alpha = 0.45 + 0.25 * Math.sin(timeNow * 5 + hzd.x * 0.02);
-      const color = hazardColorTemplate.replace("ALPHA", alpha.toFixed(3));
-      ctx.fillStyle = color;
-      ctx.moveTo(hzd.x + hzd.radius, hzd.y);
-      ctx.arc(hzd.x, hzd.y, hzd.radius, 0, Math.PI * 2);
-    }
-    ctx.fill();
-
-    if (this.hazards.length) {
-      const dangerFactor = this._difficultyFactor();
-      const accentAlpha = 0.1 + 0.35 * dangerFactor;
-      const accentWidth = 1 + 1.5 * dangerFactor;
-      const accentColor = `rgba(255, 110, 150, ${accentAlpha.toFixed(3)})`;
-      ctx.strokeStyle = accentColor;
-      ctx.lineWidth = accentWidth;
-      for (const hzd of this.hazards) {
-        ctx.beginPath();
-        ctx.arc(hzd.x, hzd.y, hzd.radius + 2, 0, Math.PI * 2);
-        ctx.stroke();
-      }
+    for (const proj of this.projectiles) {
+      this._renderProjectile(ctx, proj);
     }
 
-    const p = this.player;
-    ctx.fillStyle = "rgba(156, 200, 255, 0.55)";
-    for (const orb of this.orbiters) {
-      const angle = orb.angle + timeNow * orb.speed;
-      const ox = p.x + Math.cos(angle) * orb.radius;
-      const oy = p.y + Math.sin(angle) * orb.radius;
-      const r = 3 + (orb.radius % 5);
-      ctx.beginPath();
-      ctx.arc(ox, oy, r, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    this._renderPlayer(ctx, this.player);
 
+    // Pulses / vfx
     for (const pulse of this.pulses) {
       const t = pulse.life / pulse.maxLife;
       const alpha = t;
       ctx.beginPath();
       ctx.strokeStyle = pulse.color
         .replace("0.9", alpha.toFixed(3))
-        .replace("0.8", alpha.toFixed(3));
+        .replace("0.95", alpha.toFixed(3));
       ctx.lineWidth = pulse.thickness || 2;
       ctx.arc(pulse.x, pulse.y, pulse.radius, 0, Math.PI * 2);
       ctx.stroke();
     }
 
-    const invulnBlink =
-      p.invulnTime > 0 ? (Math.sin(timeNow * 40) > 0 ? 1 : 0.4) : 1;
+    // UI
+    this._renderTopHud(ctx, width, height);
+    this._renderRpgPanel(ctx, width, height);
+    this._renderZonePanel(ctx, width, height);
+
+    // Intro / death overlays
+    this._renderStateOverlay(ctx, width, height);
+  }
+
+  _renderGround(ctx, rect) {
+    const tileSize = 36;
+    for (let y = rect.minY; y < rect.maxY; y += tileSize) {
+      for (let x = rect.minX; x < rect.maxX; x += tileSize) {
+        const noise = (Math.sin(x * 0.06) + Math.cos(y * 0.05)) * 0.04;
+        const baseGreen = 120 + (noise * 60) | 0;
+        const baseBlue = 80 + (noise * 40) | 0;
+        ctx.fillStyle = `rgb(40, ${baseGreen}, ${baseBlue})`;
+        ctx.fillRect(x, y, tileSize + 1, tileSize + 1);
+
+        // subtle tile highlight
+        ctx.strokeStyle = "rgba(0,0,0,0.09)";
+        ctx.strokeRect(x, y, tileSize, tileSize);
+      }
+    }
+
+    // Outer darker border
+    ctx.strokeStyle = "rgba(0,0,0,0.5)";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(rect.minX, rect.minY, rect.width, rect.height);
+  }
+
+  _renderRoads(ctx, rect) {
+    const roadWidth = 72;
+    const centerX = (rect.minX + rect.maxX) / 2;
+    const centerY = (rect.minY + rect.maxY) / 2 + 20;
+
+    ctx.save();
+    ctx.globalAlpha = 0.95;
+
+    // Vertical road
+    const vRoadGrad = ctx.createLinearGradient(centerX, rect.minY, centerX, rect.maxY);
+    vRoadGrad.addColorStop(0, "#3a3126");
+    vRoadGrad.addColorStop(0.5, "#4a3b2d");
+    vRoadGrad.addColorStop(1, "#2f251c");
+    ctx.fillStyle = vRoadGrad;
+    ctx.fillRect(centerX - roadWidth / 2, rect.minY, roadWidth, rect.height);
+
+    // Horizontal road
+    const hRoadGrad = ctx.createLinearGradient(rect.minX, centerY, rect.maxX, centerY);
+    hRoadGrad.addColorStop(0, "#3a3126");
+    hRoadGrad.addColorStop(0.5, "#514131");
+    hRoadGrad.addColorStop(1, "#3a3126");
+    ctx.fillStyle = hRoadGrad;
+    ctx.fillRect(rect.minX, centerY - roadWidth / 2, rect.width, roadWidth);
+
+    // Stone circle at intersection
     ctx.beginPath();
-    const coreColor = vCfg.playerCoreColor || "#5f9cff";
-    const coreColorWithAlpha = coreColor.startsWith("#") ? coreColor : coreColor;
-    ctx.fillStyle = coreColorWithAlpha;
-    ctx.globalAlpha = invulnBlink;
-    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(190, 172, 140, 0.98)";
+    ctx.lineWidth = 4;
+    ctx.arc(centerX, centerY, 52, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.strokeStyle = "rgba(80, 65, 40, 0.9)";
+    ctx.lineWidth = 1;
+    ctx.arc(centerX, centerY, 52, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  _renderMob(ctx, mob) {
+    if (!mob.alive) return;
+
+    // Body
+    ctx.save();
+    ctx.beginPath();
+    const wobble = 1 + Math.sin(this.time * 3 + mob.x * 0.05) * 0.15;
+    const radius = mob.radius * wobble;
+    ctx.fillStyle = mob.colorBody;
+    ctx.shadowColor = mob.colorBody;
+    ctx.shadowBlur = 15;
+    ctx.arc(mob.x, mob.y, radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Core
+    ctx.beginPath();
+    ctx.fillStyle = mob.colorCore;
+    ctx.shadowBlur = 0;
+    ctx.arc(mob.x, mob.y, radius * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Hit flash overlay
+    if (mob.hitFlash > 0) {
+      const alpha = mob.hitFlash / 0.18;
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(255,255,255,${0.45 * alpha})`;
+      ctx.arc(mob.x, mob.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+
+    // Health bar
+    const barWidth = 40;
+    const barHeight = 4;
+    const barX = mob.x - barWidth / 2;
+    const barY = mob.y - mob.radius - 12;
+    const hpRatio = Math.max(0, Math.min(1, mob.health / mob.maxHealth));
+
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(barX, barY, barWidth, barHeight);
+    ctx.fillStyle = "#f85f7f";
+    ctx.fillRect(barX, barY, barWidth * hpRatio, barHeight);
+    ctx.strokeStyle = "rgba(255,255,255,0.6)";
+    ctx.lineWidth = 0.8;
+    ctx.strokeRect(barX + 0.5, barY + 0.5, barWidth - 1, barHeight - 1);
+
+    // Name + level
+    ctx.font = "10px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.fillStyle = "rgba(245, 235, 220, 0.96)";
+    ctx.textAlign = "center";
+    ctx.fillText(`${mob.name} [${mob.level}]`, mob.x, barY - 4);
+  }
+
+  _renderProjectile(ctx, proj) {
+    const t = proj.life / proj.maxLife;
+    const alpha = 0.4 + 0.6 * t;
+
+    ctx.save();
+    ctx.beginPath();
+    const grad = ctx.createRadialGradient(
+      proj.x,
+      proj.y,
+      0,
+      proj.x,
+      proj.y,
+      proj.radius * 2
+    );
+    grad.addColorStop(0, `rgba(255, 255, 210, ${alpha})`);
+    grad.addColorStop(0.5, `rgba(255, 220, 160, ${alpha * 0.8})`);
+    grad.addColorStop(1, `rgba(255, 180, 120, 0)`);
+    ctx.fillStyle = grad;
+    ctx.arc(proj.x, proj.y, proj.radius * 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  _renderPlayer(ctx, p) {
+    ctx.save();
+
+    const t = this.time;
+    const breath = 0.07 * Math.sin(t * 3) + 1;
+    const radius = p.radius * breath;
+
+    // Outer aura
+    ctx.beginPath();
+    const auraGrad = ctx.createRadialGradient(
+      p.x,
+      p.y,
+      radius * 0.5,
+      p.x,
+      p.y,
+      radius * 2.1
+    );
+    auraGrad.addColorStop(0, "rgba(120, 210, 255, 0.65)");
+    auraGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
+    ctx.fillStyle = auraGrad;
+    ctx.arc(p.x, p.y, radius * 2.1, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Core
+    ctx.beginPath();
+    const coreColor = "#5f9cff";
+    ctx.fillStyle = coreColor;
+    ctx.globalAlpha = p.invulnTime > 0 ? (Math.sin(t * 24) > 0 ? 0.4 : 1) : 1;
+    ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalAlpha = 1;
 
-    const innerPulse = 0.7 + 0.3 * Math.sin(timeNow * 8);
+    // Inner white pulse
     ctx.beginPath();
+    const innerPulse = 0.7 + 0.3 * Math.sin(t * 8);
     ctx.fillStyle = `rgba(255,255,255,${0.15 + 0.25 * innerPulse})`;
-    ctx.arc(p.x, p.y, p.radius * 0.6, 0, Math.PI * 2);
+    ctx.arc(p.x, p.y, radius * 0.6, 0, Math.PI * 2);
     ctx.fill();
 
-    let outlineColor = "#c2dcff";
-    const hitAge = timeNow - this.lastHitTime;
-    const nearMissAge = timeNow - this.lastNearMissTime;
-    if (hitAge >= 0 && hitAge < 0.28) {
-      outlineColor = "#ff5c7a";
-    } else if (nearMissAge >= 0 && nearMissAge < 0.25) {
-      outlineColor = "#f5d76e";
-    }
+    // Heading / "blade" indicator
+    const angle = p.facingAngle || 0;
+    const bladeLen = radius + 10;
+    const bladeWidth = 6;
+    const tipX = p.x + Math.cos(angle) * bladeLen;
+    const tipY = p.y + Math.sin(angle) * bladeLen;
+    const leftX = p.x + Math.cos(angle + Math.PI * 0.5) * bladeWidth;
+    const leftY = p.y + Math.sin(angle + Math.PI * 0.5) * bladeWidth;
+    const rightX = p.x + Math.cos(angle - Math.PI * 0.5) * bladeWidth;
+    const rightY = p.y + Math.sin(angle - Math.PI * 0.5) * bladeWidth;
 
     ctx.beginPath();
-    ctx.strokeStyle = outlineColor;
-    ctx.lineWidth = 2;
-    ctx.arc(p.x, p.y, p.radius + 1, 0, Math.PI * 2);
+    ctx.moveTo(tipX, tipY);
+    ctx.lineTo(leftX, leftY);
+    ctx.lineTo(rightX, rightY);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(255, 240, 190, 0.95)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(80, 60, 40, 0.9)";
+    ctx.lineWidth = 1;
     ctx.stroke();
 
-    ctx.save();
-    ctx.fillStyle = "rgba(255,255,255,0.9)";
-    ctx.font =
-      "12px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-    ctx.textAlign = "left";
-    const timeAlive = this.gameState ? this.gameState.timeAlive : 0;
-    const bestTime = this.gameState ? this.gameState.bestTime : 0;
-    ctx.fillText(`Time: ${timeAlive.toFixed(2)}s`, 12, 20);
-    ctx.textAlign = "right";
-    ctx.fillText(`Best: ${bestTime.toFixed(2)}s`, width - 12, 20);
+    ctx.restore();
+  }
 
-    // Health bar
-    const barWidth = Math.min(220, width * 0.3);
-    const barHeight = 10;
+  _renderTopHud(ctx, width, height) {
+    const p = this.player;
+
+    // Time + best
+    ctx.save();
+    ctx.font = "12px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.textAlign = "left";
+    ctx.fillText(`Time: ${this.runTime.toFixed(2)}s`, 12, 20);
+    ctx.textAlign = "right";
+    ctx.fillText(`Best: ${this.bestTime.toFixed(2)}s`, width - 12, 20);
+
+    // Health bar center-top
+    const barWidth = Math.min(260, width * 0.5);
+    const barHeight = 12;
     const barX = (width - barWidth) / 2;
-    const barY = 32;
+    const barY = 34;
     const healthRatio = Math.max(0, Math.min(1, p.health / p.maxHealth));
 
-    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    ctx.fillStyle = "rgba(0,0,0,0.65)";
     ctx.fillRect(barX, barY, barWidth, barHeight);
 
-    const hpGrd = ctx.createLinearGradient(barX, barY, barX + barWidth, barY);
-    hpGrd.addColorStop(0, "#3dd68c");
-    hpGrd.addColorStop(0.5, "#f5d76e");
-    hpGrd.addColorStop(1, "#ff6b81");
-    ctx.fillStyle = hpGrd;
+    const hpGrad = ctx.createLinearGradient(barX, barY, barX + barWidth, barY);
+    hpGrad.addColorStop(0, "#3dd68c");
+    hpGrad.addColorStop(0.5, "#f5d76e");
+    hpGrad.addColorStop(1, "#ff6b81");
+    ctx.fillStyle = hpGrad;
     ctx.fillRect(barX, barY, barWidth * healthRatio, barHeight);
 
-    if (healthRatio < 0.35) {
-      const warningPulse = 0.5 + 0.5 * Math.sin(timeNow * 6);
-      ctx.fillStyle = `rgba(255,0,40,${0.25 * warningPulse})`;
-      ctx.fillRect(barX, barY, barWidth * healthRatio, barHeight);
-    }
-
-    ctx.strokeStyle = "rgba(255,255,255,0.5)";
+    ctx.strokeStyle = "rgba(255,255,255,0.7)";
     ctx.lineWidth = 1;
     ctx.strokeRect(barX + 0.5, barY + 0.5, barWidth - 1, barHeight - 1);
 
+    const hpPercent = Math.round(healthRatio * 100);
+    const healthText = `HP ${Math.ceil(p.health)}/${p.maxHealth} (${hpPercent}%)`;
+    if (healthText !== this.cachedHealthText) {
+      this.cachedHealthText = healthText;
+    }
     ctx.textAlign = "center";
-    ctx.fillStyle = "rgba(255,255,255,0.85)";
-    ctx.font =
-      "11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-    const healthPercent = Math.round(healthRatio * 100);
-    const healthText = `Health: ${Math.ceil(p.health)}/${p.maxHealth} (${healthPercent}%)`;
-    if (healthText !== this._cachedHealthText) {
-      this._cachedHealthText = healthText;
-    }
-    ctx.fillText(this._cachedHealthText, barX + barWidth / 2, barY - 3);
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.font = "11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.fillText(this.cachedHealthText, barX + barWidth / 2, barY - 3);
 
-    if (this.nearMissStreak > 0) {
-      const streakMultiplier = 1 + Math.min(this.nearMissStreak, 20) * 0.05;
-      ctx.fillStyle = "rgba(245, 215, 110, 0.9)";
-      ctx.font =
-        "10px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-      ctx.textAlign = "right";
-      ctx.fillText(
-        `Risk x${streakMultiplier.toFixed(2)} (${this.nearMissStreak})`,
-        width - 12,
-        barY + barHeight + 12
-      );
-    }
-
-    // RPG HUD and zone header
-    this._renderRpgHud(ctx, width, height);
-    this._renderZoneHud(ctx, width, height);
-
-    // Screen-space health feedback
+    // Low-health vignette
     if (healthRatio < 0.35) {
       const vignetteStrength = (1 - healthRatio) * 0.32;
       ctx.fillStyle = `rgba(255,40,80,${vignetteStrength})`;
       ctx.fillRect(0, 0, width, height);
     }
 
-    const recentHitAge = timeNow - this.lastHitTime;
-    if (recentHitAge >= 0 && recentHitAge < 0.18) {
-      const fade = 1 - recentHitAge / 0.18;
-      ctx.fillStyle = `rgba(255,90,120,${0.25 * fade})`;
-      ctx.fillRect(0, 0, width, height);
-    }
-
-    ctx.textAlign = "center";
-
-    const state = this.gameState ? this.gameState.state : "intro";
-    if (state === "intro") {
-      ctx.fillStyle = "rgba(255,255,255,0.92)";
-      ctx.font =
-        "24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-      ctx.fillText("RACTR ENGINE DASH", width / 2, height / 2 - 10);
-      ctx.font =
-        "13px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-      ctx.fillStyle = "rgba(255,255,255,0.8)";
-      ctx.fillText(
-        "Move with WASD / arrows. Space to dash. Hazards chip away your health.",
-        width / 2,
-        height / 2 + 16
-      );
-      ctx.fillStyle = "rgba(255,255,255,0.7)";
-      ctx.fillText(
-        "Press Space or Enter to start",
-        width / 2,
-        height / 2 + 38
-      );
-    } else if (state === "gameover") {
-      ctx.fillStyle = "rgba(255,120,140,0.95)";
-      ctx.font =
-        "24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-      ctx.fillText("GAME OVER", width / 2, height / 2 - 10);
-      ctx.font =
-        "13px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-      ctx.fillStyle = "rgba(255,255,255,0.85)";
-      ctx.fillText(
-        `You survived ${timeAlive.toFixed(2)} seconds`,
-        width / 2,
-        height / 2 + 16
-      );
-      ctx.fillStyle = "rgba(255,255,255,0.75)";
-      ctx.fillText(
-        "Press Space or Enter to try again",
-        width / 2,
-        height / 2 + 38
-      );
-    }
-
     ctx.restore();
   }
 
-  _renderRpgHud(ctx, width, height) {
+  _renderRpgPanel(ctx, width, height) {
     const p = this.player;
-
     const panelPadding = 8;
-    const panelWidth = Math.min(200, width * 0.45);
+    const panelWidth = Math.min(220, width * 0.45);
     const panelX = panelPadding;
     const panelY = panelPadding;
 
@@ -1142,17 +1006,17 @@ class RactrGame {
     ctx.translate(panelX, panelY);
 
     const lineHeight = 12;
-    let currentY = 0;
     const totalLines = 8;
-    const panelHeight = totalLines * lineHeight + 12;
+    const panelHeight = totalLines * lineHeight + 14;
 
-    ctx.fillStyle = "rgba(5, 6, 10, 0.6)";
-    ctx.strokeStyle = "rgba(255,255,255,0.08)";
+    ctx.fillStyle = "rgba(5, 6, 10, 0.7)";
+    ctx.strokeStyle = "rgba(255,255,255,0.1)";
     ctx.lineWidth = 1;
-    ctx.beginPath();
+
     const radius = 6;
     const w = panelWidth;
     const h = panelHeight;
+    ctx.beginPath();
     ctx.moveTo(radius, 0);
     ctx.lineTo(w - radius, 0);
     ctx.quadraticCurveTo(w, 0, w, radius);
@@ -1166,111 +1030,86 @@ class RactrGame {
     ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle = "rgba(255,255,255,0.92)";
-    ctx.font =
-      "11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+    let y = 13;
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.font = "11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
     ctx.textAlign = "left";
+    ctx.fillText(`${p.name} – ${p.classId}`, 8, y);
 
-    currentY += 12;
-    ctx.fillText(p.name, 8, currentY);
-
-    currentY += lineHeight;
+    y += lineHeight;
+    const levelLine = `Lv ${p.level}`;
+    const xpLine = `${Math.floor(p.xp)}/${p.xpToNext}`;
+    const rpgLine = `${levelLine} · XP ${xpLine}`;
+    if (rpgLine !== this.cachedRpgLine) {
+      this.cachedRpgLine = rpgLine;
+    }
     ctx.fillStyle = "rgba(190, 210, 255, 0.96)";
-    ctx.fillText(`Class ${p.classId}`, 8, currentY);
+    ctx.fillText(this.cachedRpgLine, 8, y);
 
     const xpRatio = Math.max(0, Math.min(1, p.xp / p.xpToNext));
-    const levelText = `Lv ${p.level}`;
-    const xpText = `${Math.floor(p.xp)}/${p.xpToNext}`;
-    const combinedLevelText = `${levelText}  ·  XP ${xpText}`;
-    if (combinedLevelText !== this._cachedLevelText) {
-      this._cachedLevelText = combinedLevelText;
-    }
-
-    ctx.fillStyle = "rgba(190, 210, 255, 0.96)";
-    currentY += lineHeight;
-    ctx.fillText(this._cachedLevelText, 8, currentY);
-
     const xpBarX = 8;
-    const xpBarY = currentY + 3;
+    const xpBarY = y + 3;
     const xpBarWidth = panelWidth - 16;
     const xpBarHeight = 4;
 
     ctx.fillStyle = "rgba(255,255,255,0.08)";
     ctx.fillRect(xpBarX, xpBarY, xpBarWidth, xpBarHeight);
-    ctx.fillStyle = "rgba(120, 230, 255, 0.9)";
+    ctx.fillStyle = "rgba(120, 230, 255, 0.95)";
     ctx.fillRect(xpBarX, xpBarY, xpBarWidth * xpRatio, xpBarHeight);
 
-    currentY += lineHeight + 6;
+    y += lineHeight + 6;
     ctx.fillStyle = "rgba(210, 255, 210, 0.9)";
-    ctx.fillText(
-      `HP ${Math.ceil(p.health)}/${p.maxHealth}`,
-      8,
-      currentY
-    );
+    ctx.fillText(`HP ${Math.ceil(p.health)}/${p.maxHealth}`, 8, y);
 
-    currentY += lineHeight;
+    y += lineHeight;
     ctx.fillStyle = "rgba(200, 220, 255, 0.9)";
-    ctx.fillText(
-      `Mana ${Math.ceil(p.mana)}/${p.maxMana}`,
-      8,
-      currentY
-    );
+    ctx.fillText(`Mana ${Math.ceil(p.mana)}/${p.maxMana}`, 8, y);
 
-    currentY += lineHeight;
+    y += lineHeight;
     ctx.fillStyle = "rgba(255,255,255,0.85)";
     ctx.fillText(
       `STR ${Math.round(p.strength)}  AGI ${Math.round(
         p.agility
       )}  INT ${Math.round(p.intelligence)}`,
       8,
-      currentY
+      y
     );
 
-    currentY += lineHeight;
-    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    y += lineHeight;
     const critPercent = (p.critChance * 100).toFixed(1);
     ctx.fillText(
       `ATK ${Math.round(p.attackPower)}  DEF ${Math.round(
         p.defense
       )}  Crit ${critPercent}%`,
       8,
-      currentY
+      y
     );
 
-    currentY += lineHeight;
+    y += lineHeight;
     ctx.fillStyle = "rgba(245, 215, 110, 0.9)";
-    ctx.fillText(`Gold ${p.gold}`, 8, currentY);
+    ctx.fillText(`Gold ${p.gold}`, 8, y);
 
     ctx.restore();
   }
 
-  _renderZoneHud(ctx, width, height) {
-    const meta = this.config.meta || {};
-    const p = this.player;
-    const zone = (meta.zones && meta.zones[p.zoneId]) || null;
-
-    const label = zone ? zone.name : "Unknown Zone";
-    const range =
-      zone && zone.levelRange
-        ? `Lv ${zone.levelRange[0]}-${zone.levelRange[1]}`
-        : "";
-
+  _renderZonePanel(ctx, width, height) {
+    const zone = this.zone;
     const padding = 8;
-    const panelWidth = Math.min(170, width * 0.35);
-    const panelHeight = range ? 32 : 20;
+    const panelWidth = Math.min(210, width * 0.4);
+    const panelHeight = 32;
     const panelX = width - panelWidth - padding;
     const panelY = padding;
 
     ctx.save();
     ctx.translate(panelX, panelY);
 
-    ctx.fillStyle = "rgba(5, 6, 10, 0.6)";
-    ctx.strokeStyle = "rgba(255,255,255,0.08)";
+    ctx.fillStyle = "rgba(5, 6, 10, 0.7)";
+    ctx.strokeStyle = "rgba(255,255,255,0.1)";
     ctx.lineWidth = 1;
-    ctx.beginPath();
     const radius = 6;
     const w = panelWidth;
     const h = panelHeight;
+    ctx.beginPath();
     ctx.moveTo(radius, 0);
     ctx.lineTo(w - radius, 0);
     ctx.quadraticCurveTo(w, 0, w, radius);
@@ -1284,21 +1123,77 @@ class RactrGame {
     ctx.fill();
     ctx.stroke();
 
-    ctx.font =
-      "11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.font = "11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
     ctx.textAlign = "left";
     ctx.fillStyle = "rgba(210, 225, 255, 0.96)";
-    ctx.fillText(label, 8, 13);
+    ctx.fillText(zone.name, 8, 13);
 
-    if (range) {
-      ctx.fillStyle = "rgba(180, 200, 255, 0.85)";
+    if (zone.levelRange && zone.levelRange.length === 2) {
+      const range = `Lv ${zone.levelRange[0]}–${zone.levelRange[1]}`;
+      ctx.fillStyle = "rgba(180, 200, 255, 0.9)";
       ctx.fillText(range, 8, 25);
+    }
+
+    ctx.restore();
+  }
+
+  _renderStateOverlay(ctx, width, height) {
+    const centerX = width / 2;
+    const centerY = height / 2;
+
+    ctx.save();
+    ctx.textAlign = "center";
+
+    if (this.state === "intro") {
+      ctx.fillStyle = "rgba(0,0,0,0.45)";
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      ctx.font = "26px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+      ctx.fillText("RACTR · Everlight Crossroads", centerX, centerY - 10);
+
+      ctx.font = "13px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.fillText(
+        "Move with WASD / arrows. Space to dash. Press J to attack. Survive and level up.",
+        centerX,
+        centerY + 16
+      );
+      ctx.fillStyle = "rgba(255,255,255,0.8)";
+      ctx.fillText(
+        "Press Space or Enter to begin your first run.",
+        centerX,
+        centerY + 38
+      );
+    } else if (this.state === "dead") {
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.fillStyle = "rgba(255,120,140,0.96)";
+      ctx.font = "26px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+      ctx.fillText("You have fallen at the crossroads.", centerX, centerY - 10);
+
+      ctx.font = "13px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.fillText(
+        `This run: ${this.runTime.toFixed(2)}s · Best: ${this.bestTime.toFixed(
+          2
+        )}s · Lv ${this.player.level}`,
+        centerX,
+        centerY + 16
+      );
+      ctx.fillText(
+        "Press Space or Enter to try again.",
+        centerX,
+        centerY + 38
+      );
     }
 
     ctx.restore();
   }
 }
 
+// Make RactrGame available globally
 if (typeof window !== "undefined") {
   window.RactrGame = RactrGame;
 }
