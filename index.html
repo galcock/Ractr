@@ -2,56 +2,586 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Ractr – Play Instantly</title>
+  <title>Ractr – AI Game Studio in Your Browser</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="icon" href="favicon.png" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div id="ractr-root">
-    <header class="ractr-header">
-      <div class="ractr-logo">RACTR</div>
-      <div class="ractr-tagline">Ractr does your work – and your game.</div>
-    </header>
+  <!-- Top navigation -->
+  <header class="nav">
+    <div class="nav-inner">
+      <a href="#" class="nav-logo">
+        <span class="nav-logo-mark">R</span>
+        <span class="nav-logo-text">Ractr</span>
+      </a>
 
-    <main class="ractr-main">
-      <!-- Fullscreen game canvas -->
-      <canvas id="ractr-canvas"></canvas>
+      <button class="nav-toggle" aria-label="Toggle navigation">
+        <span></span><span></span><span></span>
+      </button>
 
-      <!-- Simple overlay HUD -->
-      <div class="ractr-hud">
-        <div class="hud-left">
-          <span class="hud-label">Use WASD or arrows to move. Space to dash. I to open character sheet.</span>
+      <nav class="nav-links">
+        <div class="nav-item nav-dropdown">
+          <button class="nav-link nav-link-button">
+            Solutions
+            <span class="nav-caret">▾</span>
+          </button>
+          <div class="nav-dropdown-menu">
+            <a href="#solutions-solo" class="nav-dropdown-item">For Solo Devs</a>
+            <a href="#solutions-studios" class="nav-dropdown-item">For Studios</a>
+            <a href="#solutions-publishers" class="nav-dropdown-item">For Publishers</a>
+            <a href="#solutions-tools" class="nav-dropdown-item">Tools & Live Ops Teams</a>
+          </div>
         </div>
-        <div class="hud-right">
-          <span id="hud-fps" class="hud-metric">FPS: --</span>
+        <a href="#how-it-works" class="nav-link">How it works</a>
+        <a href="#pricing" class="nav-link">Pricing</a>
+        <a href="#community" class="nav-link">Community</a>
+      </nav>
+
+      <div class="nav-cta">
+        <a href="#login" class="nav-link nav-link-muted">Log in</a>
+        <a href="#get-started" class="btn btn-primary">Get started</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <main>
+    <section class="hero">
+      <div class="hero-inner">
+        <div class="hero-left">
+          <h1>Ship games players actually love.</h1>
+          <p class="hero-subtitle">
+            Ractr is an AI-powered game studio in your browser. Describe the game you want—
+            Ractr generates code, art hooks, data, and tools for every genre from action RPGs
+            to management sims.
+          </p>
+          <div class="hero-cta-row">
+            <a id="get-started" href="#pricing" class="btn btn-primary btn-lg">
+              Start building a game
+            </a>
+            <button class="btn btn-ghost hero-secondary-cta" data-scroll="#how-it-works">
+              Watch how Ractr builds a level
+            </button>
+          </div>
+          <p class="hero-footnote">
+            Free to start · Keep your game code · No engine lock-in
+          </p>
+        </div>
+
+        <div class="hero-right">
+          <div class="hero-preview-card">
+            <div class="hero-preview-header">
+              <span class="tag tag-green">Live build</span>
+              <span class="hero-preview-title">”Make it a co-op roguelite in space.”</span>
+            </div>
+            <div class="hero-preview-body">
+              <div class="hero-preview-console">
+                <div class="hero-console-line">
+                  <span class="hero-console-prefix">AI</span>
+                  Generating 4-player lobby, enemy spawn tables, and loot tiers…
+                </div>
+                <div class="hero-console-line">
+                  <span class="hero-console-prefix">AI</span>
+                  Wiring abilities to WASD + mouse, adding dodge-roll stamina system…
+                </div>
+                <div class="hero-console-line">
+                  <span class="hero-console-prefix">AI</span>
+                  Syncing state to dedicated server template <span class="hero-console-highlight">ractr-mmorpg-basic</span>.
+                </div>
+                <div class="hero-console-line hero-console-line-ok">
+                  <span class="hero-console-prefix">OK</span>
+                  Build ready. Press <span class="hero-console-highlight">Play</span> to test with bots.
+                </div>
+              </div>
+            </div>
+            <div class="hero-preview-footer">
+              <button class="btn btn-secondary hero-preview-btn">Playtest build</button>
+              <button class="btn btn-ghost hero-preview-btn">Open server config</button>
+            </div>
+          </div>
         </div>
       </div>
+    </section>
 
-      <!-- Game UI root (panels, dialogs) -->
-      <div id="ractr-ui-root"></div>
-    </main>
+    <!-- Logos / social proof -->
+    <section class="section section-logos">
+      <div class="section-inner">
+        <p class="section-kicker">Teams already experimenting with AI-built games</p>
+        <div class="logos-row">
+          <span class="logo-pill">Indie studios</span>
+          <span class="logo-pill">Mid-core publishers</span>
+          <span class="logo-pill">Tools teams</span>
+          <span class="logo-pill">Live-ops squads</span>
+          <span class="logo-pill">Solo dev collectives</span>
+        </div>
+      </div>
+    </section>
 
-    <footer class="ractr-footer">
-      <span>Ractr Engine · AI-driven game prototype</span>
-    </footer>
-  </div>
+    <!-- What you can build -->
+    <section class="section section-alt" id="what-you-can-build">
+      <div class="section-inner">
+        <div class="section-header">
+          <h2>What you can build with Ractr</h2>
+          <p>
+            Ractr speaks game engines, netcode, and content pipelines. Use it as a
+            co-dev across your entire stack.
+          </p>
+        </div>
+        <div class="cards-grid">
+          <article class="card">
+            <h3>Core game loops</h3>
+            <p>
+              Design combat, progression, and economy systems in plain language.
+              Ractr turns them into real gameplay code with tunable configs.
+            </p>
+            <ul class="card-list">
+              <li>Action RPGs and ARPGs</li>
+              <li>Party-based dungeon crawlers</li>
+              <li>Survival, crafting, base-building</li>
+            </ul>
+          </article>
 
-  <script src="engine/ractr_engine.js"></script>
-  <script src="engine/ractr_state.js"></script>
-  <script src="engine/ractr_entities.js"></script>
-  <script src="engine/ractr_ui.js"></script>
-  <script src="engine/ractr_audio.js"></script>
-  <script src="engine/ractr_net.js"></script>
-  <script src="engine/ractr_game.js"></script>
-  <script>
-    // Boot the engine + game as soon as the page loads
-    window.addEventListener("load", () => {
-      const engine = new RactrEngine("ractr-canvas");
-      const game   = new RactrGame(engine);
-      engine.setGame(game);
-      engine.start();
-    });
-  </script>
+          <article class="card">
+            <h3>MMO backends & servers</h3>
+            <p>
+              Spin up server templates, persistence layers, and matchmaking logic
+              that plug into your engine of choice.
+            </p>
+            <ul class="card-list">
+              <li>Instanced dungeons & lobbies</li>
+              <li>Shard & region architecture</li>
+              <li>Progression and inventory sync</li>
+            </ul>
+          </article>
+
+          <article class="card">
+            <h3>Game tools & dashboards</h3>
+            <p>
+              Give designers and producers their own dashboards for tuning,
+              experiments, and live events—built automatically.
+            </p>
+            <ul class="card-list">
+              <li>Economy & balance dashboards</li>
+              <li>Live event editors</li>
+              <li>Bug triage and ops tools</li>
+            </ul>
+          </article>
+
+          <article class="card">
+            <h3>Companions, bots, & mods</h3>
+            <p>
+              Embed AI companions, encounter designers, or modding tools directly
+              into your game with Ractr’s generation hooks.
+            </p>
+            <ul class="card-list">
+              <li>AI dungeon masters</li>
+              <li>NPC scripting helpers</li>
+              <li>Player-facing mod tools</li>
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- How it works -->
+    <section class="section" id="how-it-works">
+      <div class="section-inner">
+        <div class="section-header">
+          <h2>How Ractr works</h2>
+          <p>
+            Think of Ractr as a senior game and engine engineer you can talk to.
+            It understands genres, patterns, and production constraints.
+          </p>
+        </div>
+        <div class="steps-grid">
+          <div class="step">
+            <div class="step-number">1</div>
+            <h3>Describe your game in your own words</h3>
+            <p>
+              Start from a blank canvas or a template. Tell Ractr the kind of game,
+              camera, feel, and progression you want.
+            </p>
+            <p class="step-note">
+              “EverQuest-style MMO, stylized, tab-targeting, focus on grouping and dungeons.”
+            </p>
+          </div>
+          <div class="step">
+            <div class="step-number">2</div>
+            <h3>Co-build core systems with AI</h3>
+            <p>
+              Ractr generates gameplay code, data structures, and tools. You edit,
+              test, and iterate in the same workspace.
+            </p>
+            <p class="step-note">
+              Add new classes, abilities, loot tables, zones, and enemy behaviors in minutes.
+            </p>
+          </div>
+          <div class="step">
+            <div class="step-number">3</div>
+            <h3>Plug in networking & deploy</h3>
+            <p>
+              When you’re ready, connect your own backend or use Ractr’s templates
+              as a starting point. Keep full control of your game.
+            </p>
+            <p class="step-note">
+              Export clean code into your existing engine, CI, and deployment pipeline.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Solutions -->
+    <section class="section section-alt" id="solutions">
+      <div class="section-inner">
+        <div class="section-header">
+          <h2>Ractr for every kind of game team</h2>
+          <p>
+            Whether you’re a solo dev or running a live service MMO, Ractr adapts
+            to your stack and workflow.
+          </p>
+        </div>
+        <div class="solutions-grid">
+          <article class="card" id="solutions-solo">
+            <h3>Solo devs</h3>
+            <p>
+              Get a “virtual team” that can handle UI, data, and glue code while
+              you focus on vision and feel.
+            </p>
+            <ul class="card-list">
+              <li>Idea to prototype in a day</li>
+              <li>Built-in save/load and tuning sliders</li>
+              <li>Owned code, no lock-in</li>
+            </ul>
+          </article>
+
+          <article class="card" id="solutions-studios">
+            <h3>Studios</h3>
+            <p>
+              Use Ractr as a force-multiplier for engineering and design. Standardize
+              patterns and templates across projects.
+            </p>
+            <ul class="card-list">
+              <li>Common gameplay & netcode templates</li>
+              <li>Shared design systems and components</li>
+              <li>Team roles, permissions, and audit trails</li>
+            </ul>
+          </article>
+
+          <article class="card" id="solutions-publishers">
+            <h3>Publishers</h3>
+            <p>
+              Evaluate more pitches, faster. Spin up playable builds that prove
+              retention, monetization, and scope.
+            </p>
+            <ul class="card-list">
+              <li>Pitch-to-prototype workflows</li>
+              <li>Metrics instrumentation built-in</li>
+              <li>Portfolio templates per genre</li>
+            </ul>
+          </article>
+
+          <article class="card" id="solutions-tools">
+            <h3>Tools & live-ops teams</h3>
+            <p>
+              Ship dashboards, editors, and pipelines that keep up with your game’s
+              pace—without stealing cycles from core dev.
+            </p>
+            <ul class="card-list">
+              <li>Economy & config editors</li>
+              <li>Experiment and A/B tooling</li>
+              <li>Secure internal tools with SSO</li>
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pricing -->
+    <section class="section" id="pricing">
+      <div class="section-inner">
+        <div class="section-header">
+          <h2>Pricing</h2>
+          <p>
+            Start free. Upgrade when you want more capacity for builds, experiments,
+            and teams. Credits are shared across your workspace.
+          </p>
+        </div>
+
+        <div class="pricing-grid">
+          <!-- Pro -->
+          <article class="pricing-card">
+            <div class="pricing-badge">Pro</div>
+            <h3>For fast-moving game teams</h3>
+            <p class="pricing-intro">
+              Perfect for solo devs and small studios building and iterating together.
+            </p>
+            <div class="pricing-price-row">
+              <span class="pricing-price">$25</span>
+              <span class="pricing-price-meta">
+                per month<br />
+                shared across unlimited users
+              </span>
+            </div>
+            <p class="pricing-meta">Includes credits for AI-assisted builds and tools.</p>
+            <ul class="pricing-list">
+              <li>100 credits / month</li>
+              <li>5 daily credits (up to 150 / month)</li>
+              <li>Usage-based cloud + AI for heavier tasks</li>
+              <li>Unlimited ractr.dev prototype URLs</li>
+              <li>Custom domains for game dashboards</li>
+              <li>Remove “Built with Ractr” badge</li>
+              <li>Team roles & permissions</li>
+            </ul>
+            <button class="btn btn-primary btn-block">Get Pro</button>
+          </article>
+
+          <!-- Business -->
+          <article class="pricing-card">
+            <div class="pricing-badge pricing-badge-accent">Business</div>
+            <h3>For growing studios & publishers</h3>
+            <p class="pricing-intro">
+              Advanced controls, governance, and internal tools for multi-project teams.
+            </p>
+            <div class="pricing-price-row">
+              <span class="pricing-price">$50</span>
+              <span class="pricing-price-meta">
+                per month<br />
+                shared across unlimited users
+              </span>
+            </div>
+            <p class="pricing-meta">Everything in Pro, plus:</p>
+            <ul class="pricing-list">
+              <li>Extra 100 credits / month</li>
+              <li>Private internal projects & tools</li>
+              <li>SSO and workspace security controls</li>
+              <li>Opt-out of data training</li>
+              <li>Design systems for in-game UI & tools</li>
+            </ul>
+            <button class="btn btn-secondary btn-block">Talk to sales</button>
+          </article>
+
+          <!-- Enterprise -->
+          <article class="pricing-card">
+            <div class="pricing-badge">Enterprise</div>
+            <h3>For large, live-service portfolios</h3>
+            <p class="pricing-intro">
+              Custom plans, advanced security, and dedicated support for AAA and platform teams.
+            </p>
+            <div class="pricing-price-row">
+              <span class="pricing-price">Custom</span>
+              <span class="pricing-price-meta">
+                Flexible plans<br />
+                for complex orgs
+              </span>
+            </div>
+            <p class="pricing-meta">Everything in Business, plus:</p>
+            <ul class="pricing-list">
+              <li>Dedicated support & onboarding</li>
+              <li>Custom backend & engine integrations</li>
+              <li>Group-based access control</li>
+              <li>Custom design systems and pipelines</li>
+              <li>Security & compliance reviews</li>
+            </ul>
+            <a href="mailto:sales@ractr.dev" class="btn btn-ghost btn-block">
+              Book a demo
+            </a>
+          </article>
+        </div>
+
+        <div class="pricing-footer-note">
+          <p>
+            Students and small game dev communities can get up to 50% off Ractr Pro.
+            <a href="#student-discount">Learn more</a>
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Community / Gallery -->
+    <section class="section section-alt" id="community">
+      <div class="section-inner">
+        <div class="section-header">
+          <h2>From the Ractr community</h2>
+          <p>
+            A snapshot of what early teams are experimenting with using Ractr as
+            their AI co-dev.
+          </p>
+        </div>
+
+        <div class="community-filters">
+          <button class="filter-chip filter-chip-active" data-filter="all">All</button>
+          <button class="filter-chip" data-filter="rpg">RPG</button>
+          <button class="filter-chip" data-filter="shooter">Shooter</button>
+          <button class="filter-chip" data-filter="sim">Sim / Builder</button>
+          <button class="filter-chip" data-filter="tools">Tools</button>
+        </div>
+
+        <div class="community-grid">
+          <article class="community-card" data-tags="rpg">
+            <div class="community-thumb community-thumb-rpg"></div>
+            <div class="community-body">
+              <h3>Shardfall</h3>
+              <p>
+                Group-focused fantasy MMO prototype with dungeons, aggro systems,
+                and loot tables generated in under a week.
+              </p>
+              <p class="community-meta">3-person team · Built with Ractr RPG template</p>
+            </div>
+          </article>
+
+          <article class="community-card" data-tags="shooter">
+            <div class="community-thumb community-thumb-shooter"></div>
+            <div class="community-body">
+              <h3>Midnight Drop</h3>
+              <p>
+                Extraction shooter vertical slice: AI-generated enemy waves, loot
+                rarity curves, and matchmaking experiments.
+              </p>
+              <p class="community-meta">Indie studio · PC & console target</p>
+            </div>
+          </article>
+
+          <article class="community-card" data-tags="sim">
+            <div class="community-thumb community-thumb-sim"></div>
+            <div class="community-body">
+              <h3>Skyport Tycoon</h3>
+              <p>
+                Management sim with progression, events, and tuning dashboards
+                wired up through Ractr’s tools layer.
+              </p>
+              <p class="community-meta">Solo dev · Live on itch prototype</p>
+            </div>
+          </article>
+
+          <article class="community-card" data-tags="tools">
+            <div class="community-thumb community-thumb-tools"></div>
+            <div class="community-body">
+              <h3>Encounter Director</h3>
+              <p>
+                Internal tool used by a studio to script boss phases and raid
+                mechanics via natural language prompts.
+              </p>
+              <p class="community-meta">Mid-size studio · Integrated with existing engine</p>
+            </div>
+          </article>
+
+          <article class="community-card" data-tags="rpg tools">
+            <div class="community-thumb community-thumb-mixed"></div>
+            <div class="community-body">
+              <h3>GuildOps Panel</h3>
+              <p>
+                Live-ops dashboard that lets producers schedule events, adjust
+                drop rates, and hotfix balance in minutes.
+              </p>
+              <p class="community-meta">Publisher tools team · SSO & role-based access</p>
+            </div>
+          </article>
+
+          <article class="community-card" data-tags="sim rpg">
+            <div class="community-thumb community-thumb-sim-alt"></div>
+            <div class="community-body">
+              <h3>Frontier Colony</h3>
+              <p>
+                Colony sim with AI-authored storylines and event chains, wired
+                into a custom save format generated by Ractr.
+              </p>
+              <p class="community-meta">Small team · In private alpha</p>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <div class="footer-logo">
+          <span class="nav-logo-mark">R</span>
+          <span class="nav-logo-text">Ractr</span>
+        </div>
+        <p class="footer-tagline">
+          Ractr is an AI game studio in your browser—helping teams build better
+          games, faster, with code you control.
+        </p>
+        <p class="footer-language">EN</p>
+      </div>
+
+      <div class="footer-columns">
+        <div class="footer-column">
+          <h4>Company</h4>
+          <ul>
+            <li><a href="#careers">Careers</a></li>
+            <li><a href="#press">Press &amp; media</a></li>
+            <li><a href="#enterprise">Enterprise</a></li>
+            <li><a href="#security">Security</a></li>
+            <li><a href="#partners">Partnerships</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-column">
+          <h4>Product</h4>
+          <ul>
+            <li><a href="#pricing">Pricing</a></li>
+            <li><a href="#student-discount">Student discount</a></li>
+            <li><a href="#solutions-solo">For solo devs</a></li>
+            <li><a href="#solutions-studios">For studios</a></li>
+            <li><a href="#solutions-publishers">For publishers</a></li>
+            <li><a href="#solutions-tools">Tools & live-ops</a></li>
+            <li><a href="#connections">Engine & backend connections</a></li>
+            <li><a href="#changelog">Changelog</a></li>
+            <li><a href="#status">Status</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-column">
+          <h4>Resources</h4>
+          <ul>
+            <li><a href="#docs">Docs</a></li>
+            <li><a href="#templates">Game templates</a></li>
+            <li><a href="#guides">Guides</a></li>
+            <li><a href="#videos">Videos</a></li>
+            <li><a href="#blog">Blog</a></li>
+            <li><a href="#support">Support</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-column">
+          <h4>Legal</h4>
+          <ul>
+            <li><a href="#privacy">Privacy policy</a></li>
+            <li><a href="#cookies">Cookie settings</a></li>
+            <li><a href="#terms">Terms of service</a></li>
+            <li><a href="#platform-rules">Platform rules</a></li>
+            <li><a href="#report-abuse">Report abuse</a></li>
+            <li><a href="#security-report">Report security issues</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-column">
+          <h4>Community</h4>
+          <ul>
+            <li><a href="#become-partner">Become a partner</a></li>
+            <li><a href="#hire-partner">Hire a partner</a></li>
+            <li><a href="#affiliates">Affiliates</a></li>
+            <li><a href="https://discord.gg/" target="_blank">Discord</a></li>
+            <li><a href="https://reddit.com" target="_blank">Reddit</a></li>
+            <li><a href="https://twitter.com" target="_blank">X / Twitter</a></li>
+            <li><a href="https://youtube.com" target="_blank">YouTube</a></li>
+            <li><a href="https://linkedin.com" target="_blank">LinkedIn</a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer-bottom">
+      <p>© <span id="year"></span> Ractr. All rights reserved.</p>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
 </body>
 </html>
